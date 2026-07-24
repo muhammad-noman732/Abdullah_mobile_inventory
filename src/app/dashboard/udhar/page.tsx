@@ -3,15 +3,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Wallet, Search, Plus, RefreshCw, AlertCircle, CheckCircle2,
-  Clock, DollarSign, Calendar, ChevronRight, Phone, User, Trash2
+  Clock, Phone, User, Trash2
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { createUdharAction, recordUdharPaymentAction, deleteUdharAction, getUdharAction, getUdharPaymentHistoryAction } from '@/actions/udhar';
-import { cn, formatDate, formatDateTime } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 import { SparklineCard } from '@/components/ui/sparkline-card';
+import { isValidPhone } from '@/lib/validation';
 
 interface UdharPayment {
   id: number;
@@ -45,6 +46,25 @@ interface Summary {
 
 type StatusFilter = 'all' | 'Unpaid' | 'Partial' | 'Paid' | 'Overdue';
 
+const STATUS_FILTER_LABELS: { label: string; value: StatusFilter }[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Unpaid', value: 'Unpaid' },
+  { label: 'Partial', value: 'Partial' },
+  { label: 'Paid', value: 'Paid' },
+  { label: 'Overdue', value: 'Overdue' },
+];
+
+type AddFormErrors = {
+  name?: string;
+  phone?: string;
+  totalAmount?: string;
+  paidAmount?: string;
+};
+
+type PayFormErrors = {
+  amount?: string;
+};
+
 export default function UdharPage() {
   const [items, setItems] = useState<UdharItem[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -63,27 +83,26 @@ export default function UdharPage() {
   const [formPaidAmount, setFormPaidAmount] = useState('');
   const [formDueDate, setFormDueDate] = useState('');
   const [formNotes, setFormNotes] = useState('');
-  const [formError, setFormError] = useState('');
+  const [formErrors, setFormErrors] = useState<AddFormErrors>({});
   const [submittingAdd, setSubmittingAdd] = useState(false);
+  const [addTouched, setAddTouched] = useState<Record<string, boolean>>({});
 
   // Record Payment Modal
   const [payTarget, setPayTarget] = useState<UdharItem | null>(null);
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('Cash');
   const [payNotes, setPayNotes] = useState('');
-  const [payError, setPayError] = useState('');
+  const [payErrors, setPayErrors] = useState<PayFormErrors>({});
   const [submittingPay, setSubmittingPay] = useState(false);
+  const [payTouched, setPayTouched] = useState<Record<string, boolean>>({});
 
-  // Payment History Drawer / Modal
+  // Payment History Modal
   const [historyTarget, setHistoryTarget] = useState<UdharItem | null>(null);
   const [paymentHistory, setPaymentHistory] = useState<UdharPayment[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Delete Confirm Modal
   const [deleteTarget, setDeleteTarget] = useState<UdharItem | null>(null);
-
-  // Toast
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -94,17 +113,108 @@ export default function UdharPage() {
     return () => { if (searchTimeout.current) clearTimeout(searchTimeout.current); };
   }, [search]);
 
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
+  // ─── Add Form Validators ───────────────────────────────────────────────────
+  const validateAddName = (v: string): string | undefined => {
+    if (!v.trim()) return 'Customer name is required.';
+    if (v.trim().length < 2) return 'Name must be at least 2 characters.';
+    if (v.trim().length > 150) return 'Name must be 150 characters or fewer.';
+    return undefined;
   };
 
+  const validateAddPhone = (v: string): string | undefined => {
+    if (!v.trim()) return 'Phone number is required.';
+    if (!isValidPhone(v.trim())) return 'Enter a valid number (e.g. 0300-1234567 or +923001234567).';
+    return undefined;
+  };
+
+  const validateAddTotalAmount = (v: string): string | undefined => {
+    if (!v) return 'Total credit amount is required.';
+    const num = parseFloat(v);
+    if (isNaN(num) || num <= 0) return 'Amount must be a positive number.';
+    if (num > 10_000_000) return 'Amount seems unusually high. Please verify.';
+    return undefined;
+  };
+
+  const validateAddPaidAmount = (v: string, totalStr: string): string | undefined => {
+    if (!v) return undefined;
+    const num = parseFloat(v);
+    if (isNaN(num) || num < 0) return 'Paid amount must be a valid number.';
+    const total = parseFloat(totalStr);
+    if (!isNaN(total) && num > total) return 'Paid amount cannot exceed the total credit amount.';
+    return undefined;
+  };
+
+  // ─── Pay Form Validators ───────────────────────────────────────────────────
+  const validatePayAmount = (v: string, remaining: number): string | undefined => {
+    if (!v) return 'Payment amount is required.';
+    const num = parseFloat(v);
+    if (isNaN(num) || num <= 0) return 'Enter a valid payment amount.';
+    if (num > remaining) return `Cannot exceed remaining balance (Rs ${Math.round(remaining).toLocaleString('en-PK')}).`;
+    return undefined;
+  };
+
+  // ─── Validate All Add Fields (for submit) ──────────────────────────────────
+  const validateAllAdd = (): boolean => {
+    const errors: AddFormErrors = {};
+    errors.name = validateAddName(formName);
+    errors.phone = validateAddPhone(formPhone);
+    errors.totalAmount = validateAddTotalAmount(formTotalAmount);
+    errors.paidAmount = validateAddPaidAmount(formPaidAmount, formTotalAmount);
+    setFormErrors(errors);
+    setAddTouched({ name: true, phone: true, totalAmount: true, paidAmount: true });
+    return !errors.name && !errors.phone && !errors.totalAmount && !errors.paidAmount;
+  };
+
+  // ─── Validate All Pay Fields (for submit) ──────────────────────────────────
+  const validateAllPay = (): boolean => {
+    if (!payTarget) return false;
+    const errors: PayFormErrors = {};
+    errors.amount = validatePayAmount(payAmount, payTarget.remaining);
+    setPayErrors(errors);
+    setPayTouched({ amount: true });
+    return !errors.amount;
+  };
+
+  // ─── Blur Handlers (validate on blur) ──────────────────────────────────────
+  const onAddBlur = (field: string) => {
+    setAddTouched((prev) => ({ ...prev, [field]: true }));
+    const errors: AddFormErrors = { ...formErrors };
+    if (field === 'name') errors.name = validateAddName(formName);
+    if (field === 'phone') errors.phone = validateAddPhone(formPhone);
+    if (field === 'totalAmount') {
+      errors.totalAmount = validateAddTotalAmount(formTotalAmount);
+      errors.paidAmount = validateAddPaidAmount(formPaidAmount, formTotalAmount);
+    }
+    if (field === 'paidAmount') errors.paidAmount = validateAddPaidAmount(formPaidAmount, formTotalAmount);
+    setFormErrors(errors);
+  };
+
+  const onPayBlur = (field: string) => {
+    setPayTouched((prev) => ({ ...prev, [field]: true }));
+    const errors: PayFormErrors = { ...payErrors };
+    if (field === 'amount' && payTarget) {
+      errors.amount = validatePayAmount(payAmount, payTarget.remaining);
+    }
+    setPayErrors(errors);
+  };
+
+  // ─── Clear Individual Field Error on Change ────────────────────────────────
+  const clearAddError = (field: keyof AddFormErrors) => {
+    if (formErrors[field]) setFormErrors((prev) => ({ ...prev, [field]: undefined }));
+  };
+
+  const clearPayError = (field: keyof PayFormErrors) => {
+    if (payErrors[field]) setPayErrors((prev) => ({ ...prev, [field]: undefined }));
+  };
+
+  // ─── Data Fetching ─────────────────────────────────────────────────────────
   const fetchUdhar = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getUdharAction({
         search: debouncedSearch,
-        status: statusFilter,
+        status: statusFilter === 'Overdue' ? 'all' : statusFilter,
+        due: statusFilter === 'Overdue' ? 'overdue' : undefined,
         limit: 200,
       });
       if (res.success) {
@@ -112,7 +222,7 @@ export default function UdharPage() {
         setSummary(res.summary as any);
       }
     } catch {
-      showToast('Failed to load udhar data.', 'error');
+      toast.error('Failed to load credit ledger data. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -120,81 +230,111 @@ export default function UdharPage() {
 
   useEffect(() => { fetchUdhar(); }, [fetchUdhar]);
 
+  // ─── Add Entry Submit ──────────────────────────────────────────────────────
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFormError('');
-    if (!formName.trim() || !formPhone.trim() || !formTotalAmount) {
-      setFormError('Name, phone number, and total amount are required.');
-      return;
-    }
-    setSubmittingAdd(true);
-    const result = await createUdharAction({
-      customerName: formName.trim(),
-      customerPhone: formPhone.trim(),
-      phoneSold: formPhoneSold.trim() || undefined,
-      totalAmount: parseFloat(formTotalAmount),
-      paidAmount: formPaidAmount ? parseFloat(formPaidAmount) : 0,
-      dueDate: formDueDate || undefined,
-      notes: formNotes.trim() || undefined,
-    });
+    if (!validateAllAdd()) return;
 
-    if (result.success) {
-      showToast('Udhar entry recorded successfully!');
-      setShowAddModal(false);
-      setFormName(''); setFormPhone(''); setFormPhoneSold(''); setFormTotalAmount(''); setFormPaidAmount(''); setFormDueDate(''); setFormNotes('');
-      fetchUdhar();
-    } else {
-      setFormError(result.error || 'Failed to add entry.');
+    setSubmittingAdd(true);
+    try {
+      const result = await createUdharAction({
+        customerName: formName.trim(),
+        customerPhone: formPhone.trim(),
+        phoneSold: formPhoneSold.trim() || undefined,
+        totalAmount: parseFloat(formTotalAmount),
+        paidAmount: formPaidAmount ? parseFloat(formPaidAmount) : 0,
+        dueDate: formDueDate || undefined,
+        notes: formNotes.trim() || undefined,
+      });
+
+      if (result.success) {
+        toast.success('Credit entry recorded successfully!');
+        setShowAddModal(false);
+        resetAddForm();
+        fetchUdhar();
+      } else {
+        setFormErrors({ name: result.error || 'Failed to record entry.' });
+        setAddTouched({ name: true });
+      }
+    } catch {
+      toast.error('An unexpected error occurred. Please try again.');
+    } finally {
+      setSubmittingAdd(false);
     }
-    setSubmittingAdd(false);
   };
 
+  // ─── Record Payment Submit ─────────────────────────────────────────────────
   const handlePaySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!payTarget || !payAmount) return;
+    if (!validateAllPay()) return;
+
     const amount = parseFloat(payAmount);
-    if (isNaN(amount) || amount <= 0) {
-      setPayError('Please enter a valid payment amount.');
-      return;
-    }
-    if (amount > payTarget.remaining) {
-      setPayError(`Payment cannot exceed remaining balance (${fmt(payTarget.remaining)}).`);
-      return;
-    }
+    if (!payTarget) return;
+
     setSubmittingPay(true);
-    const result = await recordUdharPaymentAction(payTarget.id, {
-      amountPaid: amount,
-      notes: payNotes.trim() || undefined,
-    });
-    if (result.success) {
-      showToast('Payment recorded successfully!');
-      setPayTarget(null); setPayAmount(''); setPayNotes(''); setPayError('');
-      fetchUdhar();
-    } else {
-      setPayError(result.error || 'Failed to record payment.');
+    try {
+      const result = await recordUdharPaymentAction(payTarget.id, {
+        amountPaid: amount,
+        notes: payNotes.trim() || undefined,
+      });
+      if (result.success) {
+        toast.success('Payment recorded successfully!');
+        resetPayForm();
+        fetchUdhar();
+      } else {
+        setPayErrors({ amount: result.error || 'Failed to record payment.' });
+        setPayTouched({ amount: true });
+      }
+    } catch {
+      toast.error('An unexpected error occurred while recording payment.');
+    } finally {
+      setSubmittingPay(false);
     }
-    setSubmittingPay(false);
   };
 
+  // ─── Delete ────────────────────────────────────────────────────────────────
   const handleDelete = async (id: number) => {
-    const result = await deleteUdharAction(id);
-    if (result.success) {
-      showToast('Udhar entry deleted.');
-      setDeleteTarget(null);
-      fetchUdhar();
-    } else {
-      showToast(result.error || 'Failed to delete', 'error');
+    try {
+      const result = await deleteUdharAction(id);
+      if (result.success) {
+        toast.success('Credit entry deleted.');
+        setDeleteTarget(null);
+        fetchUdhar();
+      } else {
+        toast.error(result.error || 'Failed to delete entry.');
+      }
+    } catch {
+      toast.error('An unexpected error occurred while deleting.');
     }
   };
 
+  // ─── Payment History ───────────────────────────────────────────────────────
   const openHistory = async (item: UdharItem) => {
     setHistoryTarget(item);
     setLoadingHistory(true);
-    const res = await getUdharPaymentHistoryAction(item.id);
-    if (res.success) {
-      setPaymentHistory(res.data as any);
+    try {
+      const res = await getUdharPaymentHistoryAction(item.id);
+      if (res.success) {
+        setPaymentHistory(res.data as any);
+      } else {
+        toast.error('Failed to load payment history.');
+      }
+    } catch {
+      toast.error('Failed to load payment history.');
     }
     setLoadingHistory(false);
+  };
+
+  // ─── Helpers ───────────────────────────────────────────────────────────────
+  const resetAddForm = () => {
+    setFormName(''); setFormPhone(''); setFormPhoneSold('');
+    setFormTotalAmount(''); setFormPaidAmount(''); setFormDueDate(''); setFormNotes('');
+    setFormErrors({}); setAddTouched({});
+  };
+
+  const resetPayForm = () => {
+    setPayTarget(null); setPayAmount(''); setPayNotes('');
+    setPayErrors({}); setPayTouched({});
   };
 
   const fmt = (n: number) => `Rs ${Math.round(n).toLocaleString('en-PK')}`;
@@ -208,29 +348,19 @@ export default function UdharPage() {
 
   return (
     <div className="flex flex-col gap-5 pb-8">
-      {/* Toast Notification */}
-      {toast && (
-        <div className={cn(
-          'fixed top-6 right-6 z-50 px-5 py-3.5 rounded-2xl shadow-xl text-xs font-bold border transition-all duration-200 animate-in slide-in-from-top-2',
-          toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'
-        )}>
-          {toast.msg}
-        </div>
-      )}
-
       {/* Action Control Strip */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-slate-500">Credit Ledger (Udhar Khata)</span>
           {summary && (
-            <span className="text-[10px] font-bold text-slate-700 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-full">
+            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-full">
               {summary.activeDebtors} active accounts
             </span>
           )}
         </div>
         <Button
           onClick={() => setShowAddModal(true)}
-          className="gap-2 shadow-xs bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl text-xs h-9 px-4"
+          className="gap-2 shadow-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs h-9 px-4"
         >
           <Plus className="w-4 h-4" /> Add Credit Entry
         </Button>
@@ -253,7 +383,7 @@ export default function UdharPage() {
             value={fmt(summary.overdueAmount)}
             color="purple"
             icon={AlertCircle}
-            trendText="Requires urgent follow-up"
+            trendText="Requires follow-up"
           />
           <SparklineCard
             title="Collected This Month"
@@ -283,23 +413,23 @@ export default function UdharPage() {
             placeholder="Search by customer name, phone number, or phone model..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-10 pl-10 pr-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:border-slate-800 focus:outline-none transition-all"
+            className="w-full h-10 pl-10 pr-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none transition-all"
           />
         </div>
 
         <div className="flex gap-1.5 flex-wrap">
-          {(['all', 'Unpaid', 'Partial', 'Paid', 'Overdue'] as StatusFilter[]).map((st) => (
+          {STATUS_FILTER_LABELS.map(({ label, value: st }) => (
             <button
               key={st}
               onClick={() => setStatusFilter(st)}
               className={cn(
-                'px-3 py-2 rounded-xl text-xs font-bold transition-all',
+                'px-3 py-1.5 rounded-xl text-xs font-bold transition-all',
                 statusFilter === st
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'bg-slate-100/80 text-slate-600 hover:bg-slate-200/80'
+                  ? st === 'Overdue' ? 'bg-rose-600 text-white shadow-xs' : 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               )}
             >
-              {st}
+              {label}
             </button>
           ))}
         </div>
@@ -308,7 +438,7 @@ export default function UdharPage() {
       {/* Udhar Cards Grid */}
       {loading ? (
         <div className="bg-white rounded-2xl border border-slate-200/80 flex items-center justify-center py-24 text-slate-400 gap-2 text-xs">
-          <RefreshCw className="w-4 h-4 animate-spin text-slate-600" /> Loading credit ledger...
+          <RefreshCw className="w-4 h-4 animate-spin text-indigo-500" /> Loading credit ledger...
         </div>
       ) : items.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200/80 flex flex-col items-center justify-center py-20 gap-3 text-center px-4 shadow-xs">
@@ -337,10 +467,10 @@ export default function UdharPage() {
                 <div>
                   {/* Top Bar */}
                   <div className="flex items-start justify-between gap-2 mb-3">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900">{item.customerName}</h4>
-                      <p className="text-xs text-slate-400 font-medium flex items-center gap-1 mt-0.5">
-                        <Phone className="w-3 h-3 text-slate-300" /> {item.customerPhone}
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-bold text-slate-900 truncate">{item.customerName}</h4>
+                      <p className="text-xs text-slate-400 font-medium flex items-center gap-1 mt-0.5 truncate">
+                        <Phone className="w-3 h-3 text-slate-300 shrink-0" /> {item.customerPhone}
                       </p>
                     </div>
 
@@ -358,7 +488,7 @@ export default function UdharPage() {
                   {/* Phone Sold */}
                   {item.phoneSold && (
                     <div className="mb-3 px-3 py-1.5 bg-slate-50 border border-slate-100 rounded-xl text-xs text-slate-700 font-medium truncate">
-                      📱 {item.phoneSold}
+                      {item.phoneSold}
                     </div>
                   )}
 
@@ -393,32 +523,40 @@ export default function UdharPage() {
                 </div>
 
                 {/* Card Action Buttons */}
-                <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-100">
-                  {item.remaining > 0 && (
+                <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-slate-100/80">
+                  {item.remaining > 0 ? (
                     <Button
                       size="sm"
                       onClick={() => setPayTarget(item)}
-                      className="flex-1 text-xs h-8 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold"
+                      className="h-9 px-3.5 text-xs rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold whitespace-nowrap shadow-xs"
                     >
                       Record Payment
                     </Button>
+                  ) : (
+                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200/60">
+                      Cleared
+                    </span>
                   )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => openHistory(item)}
-                    className="text-xs h-8 rounded-xl border-slate-200 font-semibold"
-                  >
-                    History
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setDeleteTarget(item)}
-                    className="h-8 w-8 p-0 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                  >
-                    ✕
-                  </Button>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openHistory(item)}
+                      className="h-9 px-3 text-xs rounded-xl border-slate-200 font-bold whitespace-nowrap"
+                    >
+                      History
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setDeleteTarget(item)}
+                      className="h-9 px-2.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 gap-1 text-xs font-semibold whitespace-nowrap"
+                      title="Delete Entry"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             );
@@ -428,8 +566,8 @@ export default function UdharPage() {
 
       {/* Record Payment Modal */}
       {payTarget && (
-        <Dialog isOpen={!!payTarget} onClose={() => setPayTarget(null)} title={`Record Payment — ${payTarget.customerName}`}>
-          <form onSubmit={handlePaySubmit} className="flex flex-col gap-4">
+        <Dialog isOpen={!!payTarget} onClose={resetPayForm} title={`Record Payment — ${payTarget.customerName}`}>
+          <form onSubmit={handlePaySubmit} className="flex flex-col gap-4" noValidate>
             <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1">
               <div className="flex justify-between font-semibold text-slate-600">
                 <span>Total Credit Amount:</span> <span>{fmt(payTarget.totalAmount)}</span>
@@ -439,15 +577,15 @@ export default function UdharPage() {
               </div>
             </div>
 
-            {payError && <div className="text-xs font-bold text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200">{payError}</div>}
-
             <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">Amount Received (Rs)*</label>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Amount Received (Rs) *</label>
               <Input
                 type="number"
                 placeholder={`Max ${payTarget.remaining}`}
                 value={payAmount}
-                onChange={(e) => setPayAmount(e.target.value)}
+                onChange={(e) => { setPayAmount(e.target.value); clearPayError('amount'); }}
+                onBlur={() => onPayBlur('amount')}
+                error={payTouched.amount ? payErrors.amount : undefined}
                 required
               />
             </div>
@@ -457,7 +595,7 @@ export default function UdharPage() {
               <select
                 value={payMethod}
                 onChange={(e) => setPayMethod(e.target.value)}
-                className="w-full h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 focus:outline-none focus:border-slate-800"
+                className="w-full h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 focus:outline-none focus:border-indigo-500 transition-all"
               >
                 {['Cash', 'Bank Transfer', 'JazzCash', 'Easypaisa', 'Card'].map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
@@ -473,10 +611,10 @@ export default function UdharPage() {
             </div>
 
             <div className="flex justify-end gap-2 mt-2">
-              <Button type="button" variant="outline" onClick={() => setPayTarget(null)} className="rounded-xl text-xs h-9">
+              <Button type="button" variant="outline" onClick={resetPayForm} className="rounded-xl text-xs h-9">
                 Cancel
               </Button>
-              <Button type="submit" disabled={submittingPay} className="rounded-xl text-xs h-9 bg-slate-900 text-white font-bold">
+              <Button type="submit" disabled={submittingPay} className="rounded-xl text-xs h-9 bg-indigo-600 text-white font-bold">
                 {submittingPay ? 'Recording...' : 'Confirm Payment'}
               </Button>
             </div>
@@ -516,17 +654,17 @@ export default function UdharPage() {
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
-        <Dialog isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Udhar Entry?">
+        <Dialog isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Credit Entry?">
           <div className="flex flex-col gap-4">
-            <p className="text-xs text-slate-500">
-              Are you sure you want to soft delete the udhar record for <strong className="text-slate-900">{deleteTarget.customerName}</strong>?
+            <p className="text-xs text-slate-500 font-medium">
+              Are you sure you want to delete the credit record for <strong className="text-slate-900 font-bold">{deleteTarget.customerName}</strong>?
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)} className="rounded-xl text-xs h-9">
                 Cancel
               </Button>
               <Button size="sm" onClick={() => handleDelete(deleteTarget.id)} className="rounded-xl text-xs h-9 bg-rose-600 text-white font-bold">
-                Soft Delete
+                Delete Entry
               </Button>
             </div>
           </div>
@@ -535,52 +673,79 @@ export default function UdharPage() {
 
       {/* Add Entry Modal */}
       {showAddModal && (
-        <Dialog isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Add New Credit Entry (Udhar)">
-          <form onSubmit={handleAddSubmit} className="flex flex-col gap-3">
-            {formError && <div className="text-xs font-bold text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200">{formError}</div>}
+        <Dialog isOpen={showAddModal} onClose={() => { setShowAddModal(false); resetAddForm(); }} title="Add New Credit Entry (Udhar)">
+          <form onSubmit={handleAddSubmit} className="flex flex-col gap-4" noValidate>
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Customer Name *"
+                placeholder="Full Name"
+                value={formName}
+                onChange={(e) => { setFormName(e.target.value); clearAddError('name'); }}
+                onBlur={() => onAddBlur('name')}
+                error={addTouched.name ? formErrors.name : undefined}
+              />
+              <div>
+                <Input
+                  label="Phone Number *"
+                  placeholder="e.g. 0300-1234567"
+                  value={formPhone}
+                  onChange={(e) => { setFormPhone(e.target.value); clearAddError('phone'); }}
+                  onBlur={() => onAddBlur('phone')}
+                  error={addTouched.phone ? formErrors.phone : undefined}
+                />
+                <span className="text-[10px] font-semibold text-slate-400 mt-1 block">
+                  Accepts 03XX-XXXXXXX or +92 format
+                </span>
+              </div>
+            </div>
+
+            <Input
+              label="Phone Model Sold (Optional)"
+              placeholder="e.g. iPhone 15 Pro 256GB"
+              value={formPhoneSold}
+              onChange={(e) => setFormPhoneSold(e.target.value)}
+            />
 
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Customer Name*</label>
-                <Input placeholder="Full Name" value={formName} onChange={(e) => setFormName(e.target.value)} required />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Phone Number*</label>
-                <Input placeholder="0300-XXXXXXX" value={formPhone} onChange={(e) => setFormPhone(e.target.value)} required />
-              </div>
+              <Input
+                label="Total Credit Amount (Rs) *"
+                type="number"
+                placeholder="Total bill"
+                value={formTotalAmount}
+                onChange={(e) => { setFormTotalAmount(e.target.value); clearAddError('totalAmount'); clearAddError('paidAmount'); }}
+                onBlur={() => onAddBlur('totalAmount')}
+                error={addTouched.totalAmount ? formErrors.totalAmount : undefined}
+              />
+              <Input
+                label="Upfront Paid (Rs)"
+                type="number"
+                placeholder="0 if unpaid"
+                value={formPaidAmount}
+                onChange={(e) => { setFormPaidAmount(e.target.value); clearAddError('paidAmount'); }}
+                onBlur={() => onAddBlur('paidAmount')}
+                error={addTouched.paidAmount ? formErrors.paidAmount : undefined}
+              />
             </div>
 
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">Phone Model Sold (Optional)</label>
-              <Input placeholder="e.g. iPhone 15 Pro 256GB" value={formPhoneSold} onChange={(e) => setFormPhoneSold(e.target.value)} />
-            </div>
+            <Input
+              label="Promised Due Date"
+              type="date"
+              value={formDueDate}
+              onChange={(e) => setFormDueDate(e.target.value)}
+            />
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Total Credit Amount (Rs)*</label>
-                <Input type="number" placeholder="Total bill" value={formTotalAmount} onChange={(e) => setFormTotalAmount(e.target.value)} required />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Upfront Paid (Rs)</label>
-                <Input type="number" placeholder="0 if unpaid" value={formPaidAmount} onChange={(e) => setFormPaidAmount(e.target.value)} />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">Promised Due Date</label>
-              <Input type="date" value={formDueDate} onChange={(e) => setFormDueDate(e.target.value)} />
-            </div>
-
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">Notes</label>
-              <Input placeholder="Additional notes or references" value={formNotes} onChange={(e) => setFormNotes(e.target.value)} />
-            </div>
+            <Input
+              label="Notes"
+              placeholder="Additional notes or references"
+              value={formNotes}
+              onChange={(e) => setFormNotes(e.target.value)}
+            />
 
             <div className="flex justify-end gap-2 mt-2">
-              <Button type="button" variant="outline" onClick={() => setShowAddModal(false)} className="rounded-xl text-xs h-9">
+              <Button type="button" variant="outline" onClick={() => { setShowAddModal(false); resetAddForm(); }} className="rounded-xl text-xs h-9">
                 Cancel
               </Button>
-              <Button type="submit" disabled={submittingAdd} className="rounded-xl text-xs h-9 bg-slate-900 text-white font-bold">
+              <Button type="submit" disabled={submittingAdd} className="rounded-xl text-xs h-9 bg-indigo-600 text-white font-bold">
                 {submittingAdd ? 'Saving...' : 'Save Credit Entry'}
               </Button>
             </div>

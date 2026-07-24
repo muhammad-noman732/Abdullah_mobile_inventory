@@ -5,6 +5,9 @@ import { Dialog } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { addStockAction, editStockAction } from '@/actions/stock';
+import { AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface StockItem {
   id: number;
@@ -29,7 +32,8 @@ interface StockFormModalProps {
 }
 
 const CONDITIONS = [
-  { label: 'New', value: 'New' },
+  { label: 'Brand New', value: 'Brand New' },
+  { label: 'Used', value: 'Used' },
   { label: 'Refurbished', value: 'Refurbished' },
   { label: 'Open Box', value: 'Open Box' },
 ];
@@ -38,7 +42,7 @@ const EMPTY_FORM = {
   brand: '',
   model: '',
   variant: '',
-  condition: 'New',
+  condition: 'Brand New',
   purchasePrice: '',
   sellingPrice: '',
   quantity: '',
@@ -48,10 +52,20 @@ const EMPTY_FORM = {
   dateAdded: new Date().toISOString().split('T')[0],
 };
 
+type StockFormErrors = {
+  brand?: string;
+  model?: string;
+  purchasePrice?: string;
+  sellingPrice?: string;
+  quantity?: string;
+  submit?: string;
+};
+
 export function StockFormModal({ isOpen, onClose, editItem, onSuccess }: StockFormModalProps) {
   const isEdit = !!editItem;
   const [form, setForm] = useState(EMPTY_FORM);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<StockFormErrors>({});
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -76,12 +90,77 @@ export function StockFormModal({ isOpen, onClose, editItem, onSuccess }: StockFo
         setForm(EMPTY_FORM);
       }
       setErrors({});
+      setTouched({});
     }
   }, [isOpen, editItem]);
 
+  // Validators
+  const validateBrand = (v: string): string | undefined => {
+    if (!v.trim()) return 'Brand is required.';
+    if (v.trim().length > 100) return 'Brand must be 100 characters or fewer.';
+    return undefined;
+  };
+
+  const validateModel = (v: string): string | undefined => {
+    if (!v.trim()) return 'Model is required.';
+    if (v.trim().length > 150) return 'Model must be 150 characters or fewer.';
+    return undefined;
+  };
+
+  const validatePurchasePrice = (v: string): string | undefined => {
+    if (!v) return 'Purchase price is required.';
+    const num = parseFloat(v);
+    if (isNaN(num) || num < 0) return 'Enter a valid purchase price.';
+    return undefined;
+  };
+
+  const validateSellingPrice = (v: string): string | undefined => {
+    if (!v) return 'Selling price is required.';
+    const num = parseFloat(v);
+    if (isNaN(num) || num < 0) return 'Enter a valid selling price.';
+    return undefined;
+  };
+
+  const validateQuantity = (v: string): string | undefined => {
+    if (!v) return 'Quantity is required.';
+    const num = parseInt(v, 10);
+    if (isNaN(num) || num < 0) return 'Enter a valid quantity.';
+    return undefined;
+  };
+
+  const validateAll = (): boolean => {
+    const e: StockFormErrors = {};
+    e.brand = validateBrand(form.brand);
+    e.model = validateModel(form.model);
+    e.purchasePrice = validatePurchasePrice(form.purchasePrice);
+    e.sellingPrice = validateSellingPrice(form.sellingPrice);
+    e.quantity = validateQuantity(form.quantity);
+    setErrors(e);
+    setTouched({ brand: true, model: true, purchasePrice: true, sellingPrice: true, quantity: true });
+    return !e.brand && !e.model && !e.purchasePrice && !e.sellingPrice && !e.quantity;
+  };
+
+  const onFieldBlur = (field: keyof StockFormErrors) => {
+    if (field === 'submit') return;
+    setTouched((prev) => ({ ...prev, [field]: true }));
+    const e: StockFormErrors = { ...errors };
+    if (field === 'brand') e.brand = validateBrand(form.brand);
+    if (field === 'model') e.model = validateModel(form.model);
+    if (field === 'purchasePrice') e.purchasePrice = validatePurchasePrice(form.purchasePrice);
+    if (field === 'sellingPrice') e.sellingPrice = validateSellingPrice(form.sellingPrice);
+    if (field === 'quantity') e.quantity = validateQuantity(form.quantity);
+    setErrors(e);
+  };
+
   const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
-    setErrors((prev) => { const n = { ...prev }; delete n[field]; return n; });
+    if (field in errors) {
+      setErrors((prev) => {
+        const n = { ...prev };
+        delete n[field as keyof StockFormErrors];
+        return n;
+      });
+    }
   };
 
   const purchasePrice = parseFloat(form.purchasePrice) || 0;
@@ -89,125 +168,156 @@ export function StockFormModal({ isOpen, onClose, editItem, onSuccess }: StockFo
   const margin = purchasePrice > 0 ? (((sellingPrice - purchasePrice) / purchasePrice) * 100).toFixed(1) : null;
   const profit = sellingPrice - purchasePrice;
 
-  const validate = () => {
-    const e: Record<string, string> = {};
-    if (!form.brand.trim()) e.brand = 'Brand is required.';
-    if (!form.model.trim()) e.model = 'Model is required.';
-    if (!form.purchasePrice || isNaN(parseFloat(form.purchasePrice)) || parseFloat(form.purchasePrice) < 0)
-      e.purchasePrice = 'Enter a valid purchase price.';
-    if (!form.sellingPrice || isNaN(parseFloat(form.sellingPrice)) || parseFloat(form.sellingPrice) < 0)
-      e.sellingPrice = 'Enter a valid selling price.';
-    if (!form.quantity || isNaN(parseInt(form.quantity)) || parseInt(form.quantity) < 0)
-      e.quantity = 'Enter a valid quantity.';
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  };
-
   const handleSubmit = async () => {
-    if (!validate()) return;
+    if (!validateAll()) return;
     setLoading(true);
     try {
-      const url = isEdit ? `/api/stock/${editItem!.id}` : '/api/stock';
-      const method = isEdit ? 'PUT' : 'POST';
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...form,
-          purchasePrice: parseFloat(form.purchasePrice),
-          sellingPrice: parseFloat(form.sellingPrice),
-          quantity: parseInt(form.quantity),
-          lowStockAlert: parseInt(form.lowStockAlert || '2'),
-        }),
+      const formData = new FormData();
+      Object.entries(form).forEach(([key, val]) => {
+        if (val !== undefined && val !== null) formData.append(key, String(val));
       });
-      const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.error || 'Operation failed');
-      onSuccess();
-      onClose();
-    } catch (err: any) {
-      setErrors({ submit: err.message });
+
+      let res;
+      if (isEdit && editItem) {
+        res = await editStockAction(editItem.id, { success: false }, formData);
+      } else {
+        res = await addStockAction({ success: false }, formData);
+      }
+
+      if (!res.success) {
+        setErrors({ submit: res.error || 'Failed to save stock item.' });
+      } else {
+        toast.success(isEdit ? 'Stock item updated successfully!' : 'Stock item added successfully!');
+        onSuccess();
+        onClose();
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Dialog
-      isOpen={isOpen}
-      onClose={onClose}
-      title={isEdit ? 'Edit Stock Item' : 'Add New Phone to Stock'}
-      description={isEdit ? `Editing: ${editItem?.brand} ${editItem?.model}` : 'Fill in the phone details to add it to inventory.'}
-      maxWidth="lg"
-    >
-      <div className="flex flex-col gap-5">
-        {/* Row 1 */}
-        <div className="grid grid-cols-2 gap-4">
-          <Input label="Brand *" placeholder="e.g. Samsung" value={form.brand} onChange={set('brand')} error={errors.brand} />
-          <Input label="Model *" placeholder="e.g. Galaxy A55" value={form.model} onChange={set('model')} error={errors.model} />
+    <Dialog isOpen={isOpen} onClose={onClose} title={isEdit ? 'Update Stock Item' : 'Add New Phone to Stock'} maxWidth="md">
+      <div className="flex flex-col gap-4">
+        {/* Brand & Model */}
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="Brand Name *"
+            placeholder="e.g. Apple, Samsung"
+            value={form.brand}
+            onChange={set('brand')}
+            onBlur={() => onFieldBlur('brand')}
+            error={touched.brand ? errors.brand : undefined}
+          />
+          <Input
+            label="Model Name *"
+            placeholder="e.g. iPhone 15 Pro, Galaxy S24"
+            value={form.model}
+            onChange={set('model')}
+            onBlur={() => onFieldBlur('model')}
+            error={touched.model ? errors.model : undefined}
+          />
         </div>
 
-        {/* Row 2 */}
-        <div className="grid grid-cols-2 gap-4">
-          <Input label="Variant / Color / Storage" placeholder="e.g. Black 256GB" value={form.variant} onChange={set('variant')} />
-          <Select label="Condition" value={form.condition} onChange={set('condition')} options={CONDITIONS} />
+        {/* Variant & Condition */}
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="Variant / Specs"
+            placeholder="e.g. 256GB - Blue"
+            value={form.variant}
+            onChange={set('variant')}
+          />
+          <Select
+            label="Condition"
+            value={form.condition}
+            onChange={set('condition')}
+            options={CONDITIONS}
+          />
         </div>
 
-        {/* Row 3: Pricing with live margin */}
-        <div className="grid grid-cols-2 gap-4">
-          <Input label="Purchase Price (Rs) *" type="number" min={0} placeholder="0" value={form.purchasePrice} onChange={set('purchasePrice')} error={errors.purchasePrice} />
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-700 tracking-wide">Selling Price (Rs) *</label>
-            <input
-              type="number"
-              min={0}
-              placeholder="0"
-              value={form.sellingPrice}
-              onChange={set('sellingPrice')}
-              className={`flex h-10 w-full rounded-lg border px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-1 focus:ring-slate-800 focus:border-slate-800 ${errors.sellingPrice ? 'border-rose-500' : 'border-slate-300 bg-white'}`}
-            />
-            {margin !== null && (
-              <span className={`text-xs font-medium ${profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                {profit >= 0 ? '▲' : '▼'} Profit: Rs {Math.abs(profit).toLocaleString('en-PK')} ({margin}% {profit >= 0 ? 'margin' : 'loss'})
-              </span>
-            )}
-            {errors.sellingPrice && <span className="text-xs text-rose-600 font-medium">{errors.sellingPrice}</span>}
+        {/* Pricing */}
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="Purchase Price (Rs) *"
+            type="number"
+            placeholder="0"
+            value={form.purchasePrice}
+            onChange={set('purchasePrice')}
+            onBlur={() => onFieldBlur('purchasePrice')}
+            error={touched.purchasePrice ? errors.purchasePrice : undefined}
+          />
+          <Input
+            label="Selling Price (Rs) *"
+            type="number"
+            placeholder="0"
+            value={form.sellingPrice}
+            onChange={set('sellingPrice')}
+            onBlur={() => onFieldBlur('sellingPrice')}
+            error={touched.sellingPrice ? errors.sellingPrice : undefined}
+          />
+        </div>
+
+        {/* Profit Preview */}
+        {purchasePrice > 0 && sellingPrice > 0 && (
+          <div className="bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs">
+            <span className="font-semibold text-slate-600">Expected Profit per unit:</span>
+            <span className="font-black text-emerald-700">
+              Rs {profit.toLocaleString('en-PK')} ({margin}% margin)
+            </span>
           </div>
+        )}
+
+        {/* Quantity & Alert */}
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="Stock Quantity *"
+            type="number"
+            placeholder="Units in stock"
+            value={form.quantity}
+            onChange={set('quantity')}
+            onBlur={() => onFieldBlur('quantity')}
+            error={touched.quantity ? errors.quantity : undefined}
+          />
+          <Input
+            label="Low Stock Alert Threshold"
+            type="number"
+            placeholder="2"
+            value={form.lowStockAlert}
+            onChange={set('lowStockAlert')}
+          />
         </div>
 
-        {/* Row 4 */}
-        <div className="grid grid-cols-2 gap-4">
-          <Input label="Quantity *" type="number" min={0} placeholder="0" value={form.quantity} onChange={set('quantity')} error={errors.quantity} />
-          <Input label="Low Stock Alert Threshold" type="number" min={0} placeholder="2" value={form.lowStockAlert} onChange={set('lowStockAlert')} helperText="Alert when qty falls to or below this." />
-        </div>
-
-        {/* Row 5 */}
-        <div className="grid grid-cols-2 gap-4">
-          <Input label="IMEI / Serial (optional)" placeholder="e.g. 353945100000000" value={form.imei} onChange={set('imei')} />
-          <Input label="Date Added" type="date" value={form.dateAdded} onChange={set('dateAdded')} />
-        </div>
-
-        {/* Notes */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-slate-700 tracking-wide">Notes (optional)</label>
-          <textarea
-            rows={2}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-800 resize-none"
-            placeholder="Any additional notes about this phone..."
-            value={form.notes}
-            onChange={set('notes')}
+        {/* IMEI & Date */}
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="IMEI Number (Optional)"
+            placeholder="15-digit IMEI"
+            value={form.imei}
+            onChange={set('imei')}
+          />
+          <Input
+            label="Date Added"
+            type="date"
+            value={form.dateAdded}
+            onChange={set('dateAdded')}
           />
         </div>
 
         {errors.submit && (
-          <div className="bg-rose-50 border border-rose-200 rounded-xl px-4 py-3 text-sm text-rose-700">
-            {errors.submit}
+          <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs font-bold text-rose-700">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{errors.submit}</span>
           </div>
         )}
 
-        <div className="flex gap-3 pt-1">
-          <Button variant="outline" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button onClick={handleSubmit} disabled={loading} className="flex-1">
-            {loading ? 'Saving...' : isEdit ? 'Save Changes' : 'Add to Stock'}
+        <div className="flex gap-3 pt-2">
+          <Button variant="outline" onClick={onClose} className="flex-1 rounded-xl">
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={loading} className="flex-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold">
+            {loading ? 'Saving...' : isEdit ? 'Update Stock' : 'Add to Stock'}
           </Button>
         </div>
       </div>

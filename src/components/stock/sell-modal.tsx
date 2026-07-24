@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { createSaleAction } from '@/actions/sales';
 import { cn } from '@/lib/utils';
+import { isValidPhone } from '@/lib/validation';
+import { toast } from 'sonner';
 
 interface StockItem {
   id: number;
@@ -52,6 +54,13 @@ const PAYMENT_METHODS = [
   { label: 'Udhar (Credit)', value: 'Udhar' },
 ];
 
+type SellFormErrors = {
+  customerPhone?: string;
+  cart?: string;
+  submit?: string;
+  [key: string]: string | undefined;
+};
+
 export function SellModal({ isOpen, onClose, initialStock, allStock, onSuccess }: SellModalProps) {
   const [cartItems, setCartItems] = useState<SellCartItem[]>([]);
   const [customerName, setCustomerName] = useState('Walk-in');
@@ -61,7 +70,8 @@ export function SellModal({ isOpen, onClose, initialStock, allStock, onSuccess }
   const [dueDate, setDueDate] = useState('');
   const [udharNotes, setUdharNotes] = useState('');
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<SellFormErrors>({});
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   const isUdhar = paymentMethod === 'Udhar';
 
@@ -87,6 +97,7 @@ export function SellModal({ isOpen, onClose, initialStock, allStock, onSuccess }
       setDueDate('');
       setUdharNotes('');
       setErrors({});
+      setTouched({});
     }
   }, [isOpen, initialStock]);
 
@@ -147,21 +158,38 @@ export function SellModal({ isOpen, onClose, initialStock, allStock, onSuccess }
     setCartItems((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const validate = () => {
-    const e: Record<string, string> = {};
-    if (isUdhar && !customerPhone.trim()) e.customerPhone = 'Phone number is required for credit sales.';
-    if (cartItems.length === 0) e.cart = 'Add at least one item to sell.';
+  const validatePhone = (v: string): string | undefined => {
+    if (!v.trim()) return 'Phone number is required for credit sales.';
+    if (!isValidPhone(v.trim())) return 'Enter a valid number (e.g. 0300-1234567 or +923001234567).';
+    return undefined;
+  };
+
+  const validateAll = (): SellFormErrors => {
+    const e: SellFormErrors = {};
+    if (isUdhar) {
+      e.customerPhone = validatePhone(customerPhone);
+    }
+    if (cartItems.length === 0) {
+      e.cart = 'Add at least one item to sell.';
+    }
     cartItems.forEach((item, i) => {
       if (item.quantity < 1) e[`qty_${i}`] = 'Quantity must be at least 1.';
       if (item.quantity > item.maxQty) e[`qty_${i}`] = `Only ${item.maxQty} unit${item.maxQty !== 1 ? 's' : ''} available in stock.`;
       if (item.salePrice <= 0) e[`price_${i}`] = 'Sale price must be greater than 0.';
     });
-    setErrors(e);
-    return Object.keys(e).length === 0;
+    return e;
   };
 
   const handleSubmit = async () => {
-    if (!validate()) return;
+    const e = validateAll();
+    setErrors(e);
+    setTouched({
+      customerPhone: true,
+      cart: true,
+      ...Object.fromEntries(Object.keys(e).filter(k => k.startsWith('qty_') || k.startsWith('price_')).map(k => [k, true])),
+    });
+    if (Object.keys(e).length > 0) return;
+
     setLoading(true);
     try {
       const payload = {
@@ -184,14 +212,25 @@ export function SellModal({ isOpen, onClose, initialStock, allStock, onSuccess }
       if (!result.success) {
         setErrors({ submit: result.error || 'Sale failed. Please check the form and try again.' });
       } else {
+        toast.success('Sale recorded successfully!');
         onSuccess();
         onClose();
       }
     } catch (err: any) {
-      setErrors({ submit: err.message || 'Unexpected error. Please try again.' });
+      toast.error(err.message || 'An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const onPhoneBlur = () => {
+    setTouched((prev) => ({ ...prev, customerPhone: true }));
+    const phoneError = validatePhone(customerPhone);
+    setErrors((prev) => ({ ...prev, customerPhone: phoneError }));
+  };
+
+  const clearPhoneError = () => {
+    if (errors.customerPhone) setErrors((prev) => ({ ...prev, customerPhone: undefined }));
   };
 
   const availableToAdd = allStock.filter(
@@ -216,7 +255,7 @@ export function SellModal({ isOpen, onClose, initialStock, allStock, onSuccess }
             )}
           </div>
 
-          {errors.cart && (
+          {touched.cart && errors.cart && (
             <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 font-medium">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {errors.cart}
             </div>
@@ -228,7 +267,7 @@ export function SellModal({ isOpen, onClose, initialStock, allStock, onSuccess }
             const qtyExceeded = item.quantity > item.maxQty;
             return (
               <div key={i} className={cn('rounded-2xl p-4 border flex flex-col gap-3', qtyExceeded ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200')}>
-                {/* Item Header — Dropdown + Remove */}
+                {/* Item Header */}
                 <div className="flex items-center gap-2">
                   <div className="flex-1">
                     {cartItems.length > 1 || i > 0 ? (
@@ -292,7 +331,7 @@ export function SellModal({ isOpen, onClose, initialStock, allStock, onSuccess }
                         <AlertCircle className="w-3 h-3" /> Only {item.maxQty} available
                       </p>
                     )}
-                    {errors[`qty_${i}`] && !qtyExceeded && (
+                    {touched[`qty_${i}`] && errors[`qty_${i}`] && !qtyExceeded && (
                       <p className="text-[10px] text-rose-600 font-medium">{errors[`qty_${i}`]}</p>
                     )}
                   </div>
@@ -306,7 +345,7 @@ export function SellModal({ isOpen, onClose, initialStock, allStock, onSuccess }
                       onChange={(e) => updateCartItem(i, 'salePrice', parseFloat(e.target.value) || 0)}
                       className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-100 transition-all"
                     />
-                    {errors[`price_${i}`] && <p className="text-[10px] text-rose-600 font-medium">{errors[`price_${i}`]}</p>}
+                    {touched[`price_${i}`] && errors[`price_${i}`] && <p className="text-[10px] text-rose-600 font-medium">{errors[`price_${i}`]}</p>}
                     {discount > 0 && (
                       <p className="text-[10px] text-amber-600 font-semibold">↓ {discountPct}% off list</p>
                     )}
@@ -359,9 +398,10 @@ export function SellModal({ isOpen, onClose, initialStock, allStock, onSuccess }
               <Input
                 label="Customer Phone *"
                 value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
+                onChange={(e) => { setCustomerPhone(e.target.value); clearPhoneError(); }}
+                onBlur={onPhoneBlur}
                 placeholder="0300-1234567"
-                error={errors.customerPhone}
+                error={touched.customerPhone ? errors.customerPhone : undefined}
               />
               <Input
                 label="Amount Paid Upfront (Rs)"

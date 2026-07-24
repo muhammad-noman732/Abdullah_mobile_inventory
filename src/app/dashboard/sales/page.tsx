@@ -3,9 +3,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search, Receipt, RefreshCw, TrendingUp, DollarSign,
-  ShoppingCart, CalendarDays, Trash2, Eye, ChevronLeft, ChevronRight
+  ShoppingCart, CalendarDays, Trash2, Eye, ChevronLeft, ChevronRight,
+  Package
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { SaleDetailModal } from '@/components/sales/sale-detail-modal';
 import { getSalesAction, deleteSaleAction } from '@/actions/sales';
@@ -65,6 +66,46 @@ const METHOD_BADGES: Record<string, string> = {
   'Bank Transfer': 'text-violet-700 bg-violet-50 border-violet-200/60',
 };
 
+const METHOD_BAR: Record<string, string> = {
+  Cash: 'bg-emerald-400',
+  Udhar: 'bg-rose-400',
+  Card: 'bg-blue-400',
+  Easypaisa: 'bg-green-400',
+  JazzCash: 'bg-orange-400',
+  'Bank Transfer': 'bg-violet-400',
+};
+
+function SkeletonRow() {
+  return (
+    <tr className="animate-pulse">
+      {Array.from({ length: 7 }).map((_, i) => (
+        <td key={i} className="px-5 py-4">
+          <div className={cn('h-3 rounded-full bg-neutral-200/70', i === 6 ? 'w-16 ml-auto' : 'w-24')} />
+        </td>
+      ))}
+    </tr>
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <div className="p-4 animate-pulse space-y-3">
+      <div className="flex justify-between">
+        <div className="h-3 w-32 rounded-full bg-neutral-200/70" />
+        <div className="h-5 w-16 rounded-lg bg-neutral-200/70" />
+      </div>
+      <div className="flex gap-2">
+        <div className="h-6 w-20 rounded-full bg-neutral-200/70" />
+        <div className="h-6 w-24 rounded-full bg-neutral-200/70" />
+      </div>
+      <div className="flex justify-between pt-2 border-t border-neutral-100">
+        <div className="h-3 w-20 rounded-full bg-neutral-200/70" />
+        <div className="h-3 w-16 rounded-full bg-neutral-200/70" />
+      </div>
+    </div>
+  );
+}
+
 export default function SalesPage() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -72,20 +113,15 @@ export default function SalesPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  // Filters
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('month');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('all');
   const [search, setSearch] = useState('');
 
-  // Modals & detail view
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
-
-  // Toast
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -98,11 +134,6 @@ export default function SalesPage() {
     }, 300);
     return () => { if (searchTimeout.current) clearTimeout(searchTimeout.current); };
   }, [search]);
-
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
-  };
 
   const fetchSales = useCallback(async () => {
     setLoading(true);
@@ -122,7 +153,7 @@ export default function SalesPage() {
         setTotalPages(res.pagination?.totalPages || 1);
       }
     } catch {
-      showToast('Failed to load sales.', 'error');
+      toast.error('Failed to load sales. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -135,14 +166,14 @@ export default function SalesPage() {
     try {
       const res = await deleteSaleAction(id);
       if (res.success) {
-        showToast('Sale entry soft deleted.');
+        toast.success('Sale entry deleted successfully.');
         setDeleteConfirmId(null);
         fetchSales();
       } else {
-        showToast(res.error || 'Failed to delete sale.', 'error');
+        toast.error(res.error || 'Failed to delete sale.');
       }
     } catch {
-      showToast('Error deleting sale.', 'error');
+      toast.error('An unexpected error occurred while deleting.');
     } finally {
       setDeleting(false);
     }
@@ -160,60 +191,21 @@ export default function SalesPage() {
 
   return (
     <div className="flex flex-col gap-5 pb-8">
-      {/* Toast Notification */}
-      {toast && (
-        <div className={cn(
-          'fixed top-6 right-6 z-50 px-5 py-3.5 rounded-2xl shadow-xl text-xs font-bold border transition-all duration-200 animate-in slide-in-from-top-2',
-          toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'
-        )}>
-          {toast.msg}
-        </div>
-      )}
-
       {/* Summary KPI Cards */}
       {summary && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <SparklineCard
-            title="Total Revenue"
-            subtitle="Filtered period total"
-            value={fmt(summary.totalRevenue)}
-            color="emerald"
-            icon={DollarSign}
-            trendText={`${summary.totalTransactions} transactions`}
-          />
-          <SparklineCard
-            title="Total Profit"
-            subtitle="Gross profit margin"
-            value={fmt(summary.totalProfit)}
-            color="blue"
-            icon={TrendingUp}
-            trendText="Net gross earnings"
-          />
-          <SparklineCard
-            title="Transactions"
-            subtitle="Invoices generated"
-            value={summary.totalTransactions.toLocaleString()}
-            color="purple"
-            icon={Receipt}
-            trendText="Completed sales logs"
-          />
-          <SparklineCard
-            title="Units Sold"
-            subtitle="Mobile units dispatched"
-            value={summary.totalUnits.toLocaleString()}
-            color="amber"
-            icon={ShoppingCart}
-            trendText="Total items sold"
-          />
+          <SparklineCard title="Total Revenue" subtitle="Filtered period total" value={fmt(summary.totalRevenue)} color="emerald" icon={DollarSign} trendText={`${summary.totalTransactions} transactions`} />
+          <SparklineCard title="Total Profit" subtitle="Gross profit margin" value={fmt(summary.totalProfit)} color="blue" icon={TrendingUp} trendText="Net gross earnings" />
+          <SparklineCard title="Transactions" subtitle="Invoices generated" value={summary.totalTransactions.toLocaleString()} color="purple" icon={Receipt} trendText="Completed sales logs" />
+          <SparklineCard title="Units Sold" subtitle="Mobile units dispatched" value={summary.totalUnits.toLocaleString()} color="amber" icon={ShoppingCart} trendText="Total items sold" />
         </div>
       )}
 
       {/* Filters Toolbar */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs flex flex-col gap-3">
-        {/* Quick Filter Tabs */}
+      <div className="bg-white rounded-2xl border border-neutral-200/80 p-4 flex flex-col gap-3">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs font-semibold text-slate-500 mr-1 flex items-center gap-1">
-            <CalendarDays className="w-3.5 h-3.5 text-slate-400" /> Period:
+          <span className="text-xs font-semibold text-neutral-500 mr-1 flex items-center gap-1">
+            <CalendarDays className="w-3.5 h-3.5 text-neutral-400" /> Period:
           </span>
           {quickBtns.map((btn) => (
             <button
@@ -222,8 +214,8 @@ export default function SalesPage() {
               className={cn(
                 'px-3 py-1.5 rounded-xl text-xs font-bold transition-all',
                 quickFilter === btn.value
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'bg-slate-100/80 text-slate-600 hover:bg-slate-200/80'
+                  ? 'bg-[#121212] text-white shadow-xs'
+                  : 'bg-neutral-100/80 text-neutral-500 hover:bg-neutral-200/80'
               )}
             >
               {btn.label}
@@ -231,34 +223,32 @@ export default function SalesPage() {
           ))}
         </div>
 
-        {/* Custom Dates */}
         {quickFilter === 'custom' && (
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-xs text-slate-500 font-medium">From</span>
+            <span className="text-xs text-neutral-500 font-medium">From</span>
             <input type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setPage(1); }}
-              className="h-9 px-3 text-xs border border-slate-200 rounded-xl bg-white text-slate-900 focus:outline-none focus:border-slate-800" />
-            <span className="text-xs text-slate-500 font-medium">To</span>
+              className="h-9 px-3 text-xs border border-neutral-200 rounded-xl bg-white text-[#121212] focus:outline-none focus:border-[#121212]" />
+            <span className="text-xs text-neutral-500 font-medium">To</span>
             <input type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); setPage(1); }}
-              className="h-9 px-3 text-xs border border-slate-200 rounded-xl bg-white text-slate-900 focus:outline-none focus:border-slate-800" />
+              className="h-9 px-3 text-xs border border-neutral-200 rounded-xl bg-white text-[#121212] focus:outline-none focus:border-[#121212]" />
           </div>
         )}
 
-        {/* Search + Payment Filter */}
         <div className="flex gap-3 flex-wrap sm:flex-nowrap">
           <div className="relative flex-1">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
             <input
               type="text"
               placeholder="Search customer name or mobile model..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full h-10 pl-10 pr-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:border-slate-800 focus:outline-none transition-all"
+              className="w-full h-10 pl-10 pr-3 rounded-xl border border-neutral-200 bg-white text-xs font-medium text-[#121212] placeholder:text-neutral-400 focus:border-[#121212] focus:outline-none transition-all"
             />
           </div>
           <select
             value={paymentMethod}
             onChange={(e) => { setPaymentMethod(e.target.value); setPage(1); }}
-            className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 focus:border-slate-800 focus:outline-none transition-all"
+            className="h-10 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-600 focus:border-[#121212] focus:outline-none transition-all"
           >
             {PAYMENT_METHODS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
@@ -266,124 +256,209 @@ export default function SalesPage() {
       </div>
 
       {/* Sales Table Card */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden">
+      <div className="bg-white border border-neutral-200/80 rounded-2xl overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-24 text-slate-400 gap-2 text-xs">
-            <RefreshCw className="w-4 h-4 animate-spin text-slate-600" /> Loading transaction logs...
-          </div>
+          <>
+            {/* Desktop skeleton table */}
+            <div className="hidden md:block">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-neutral-50/60 border-b border-neutral-100">
+                    {['Customer', 'Items Purchased', 'Payment', 'Total', 'Profit', 'Date', 'Actions'].map((h) => (
+                      <th key={h} className="px-5 py-3 text-left font-bold text-neutral-400 uppercase tracking-wider text-[10px]">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-100/80">
+                  {Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)}
+                </tbody>
+              </table>
+            </div>
+            {/* Mobile skeleton */}
+            <div className="md:hidden divide-y divide-neutral-100">
+              {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+            </div>
+          </>
         ) : sales.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-center px-4">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center">
-              <Receipt className="w-6 h-6 text-slate-400" />
+            <div className="w-12 h-12 rounded-2xl bg-neutral-100 flex items-center justify-center">
+              <Receipt className="w-6 h-6 text-neutral-400" />
             </div>
             <div>
-              <p className="text-sm font-bold text-slate-800">No sales transactions found</p>
-              <p className="text-xs text-slate-400 mt-1">Try adjusting your date range or search query.</p>
+              <p className="text-sm font-bold text-[#121212]">No sales transactions found</p>
+              <p className="text-xs text-neutral-500 mt-1">Try adjusting your date range or search query.</p>
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-slate-50/60 border-b border-slate-100">
-                  <th className="px-5 py-3 text-left font-bold text-slate-400 uppercase tracking-wider text-[10px]">Customer</th>
-                  <th className="px-5 py-3 text-left font-bold text-slate-400 uppercase tracking-wider text-[10px]">Items Purchased</th>
-                  <th className="px-5 py-3 text-center font-bold text-slate-400 uppercase tracking-wider text-[10px]">Payment</th>
-                  <th className="px-5 py-3 text-right font-bold text-slate-400 uppercase tracking-wider text-[10px]">Total Amount</th>
-                  <th className="px-5 py-3 text-right font-bold text-slate-400 uppercase tracking-wider text-[10px]">Profit</th>
-                  <th className="px-5 py-3 text-left font-bold text-slate-400 uppercase tracking-wider text-[10px]">Sale Date</th>
-                  <th className="px-5 py-3 text-right font-bold text-slate-400 uppercase tracking-wider text-[10px]">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100/80">
-                {sales.map((sale) => (
-                  <tr key={sale.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="px-5 py-3.5">
-                      <p className="font-bold text-slate-900 text-xs">{sale.customerName}</p>
-                    </td>
-
-                    <td className="px-5 py-3.5">
-                      <div className="flex flex-col gap-0.5">
-                        {sale.items.map((i) => (
-                          <span key={i.id} className="text-xs text-slate-700 font-medium">
-                            {i.quantity > 1 ? `${i.quantity}x ` : ''}{i.brand} {i.model} {i.variant ? `(${i.variant})` : ''}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-
-                    <td className="px-5 py-3.5 text-center">
-                      <span className={cn(
-                        'text-[10px] font-bold px-2 py-1 rounded-lg border',
-                        METHOD_BADGES[sale.paymentMethod] || 'bg-slate-100 text-slate-700 border-slate-200'
-                      )}>
-                        {sale.paymentMethod}
-                      </span>
-                    </td>
-
-                    <td className="px-5 py-3.5 text-right font-black text-slate-900 text-xs">
-                      {fmt(sale.totalAmount)}
-                    </td>
-
-                    <td className="px-5 py-3.5 text-right font-bold text-emerald-700 text-xs">
-                      +{fmt(sale.totalProfit)}
-                    </td>
-
-                    <td className="px-5 py-3.5 text-slate-500 text-xs font-medium">
-                      {formatDateTime(sale.saleDate)}
-                    </td>
-
-                    <td className="px-5 py-3.5 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setSelectedSale(sale)}
-                          className="text-[11px] h-7 px-2.5 rounded-lg border-slate-200 font-semibold text-slate-700 hover:bg-slate-100"
-                        >
-                          <Eye className="w-3.5 h-3.5 mr-1 text-slate-400" /> View
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setDeleteConfirmId(sale.id)}
-                          className="text-[11px] h-7 w-7 p-0 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                          title="Delete Sale"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </td>
+          <>
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-neutral-50/60 border-b border-neutral-100">
+                    <th className="px-5 py-3 text-left font-bold text-neutral-400 uppercase tracking-wider text-[10px]">Customer</th>
+                    <th className="px-5 py-3 text-left font-bold text-neutral-400 uppercase tracking-wider text-[10px]">Items Purchased</th>
+                    <th className="px-5 py-3 text-center font-bold text-neutral-400 uppercase tracking-wider text-[10px]">Payment</th>
+                    <th className="px-5 py-3 text-right font-bold text-neutral-400 uppercase tracking-wider text-[10px]">Total</th>
+                    <th className="px-5 py-3 text-right font-bold text-neutral-400 uppercase tracking-wider text-[10px]">Profit</th>
+                    <th className="px-5 py-3 text-left font-bold text-neutral-400 uppercase tracking-wider text-[10px]">Date</th>
+                    <th className="px-5 py-3 text-right font-bold text-neutral-400 uppercase tracking-wider text-[10px]">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-neutral-100/80">
+                  {sales.map((sale) => (
+                    <tr key={sale.id} className="hover:bg-neutral-50/70 transition-colors">
+                      <td className="px-5 py-3.5">
+                        <p className="font-bold text-[#121212] text-xs">{sale.customerName}</p>
+                      </td>
+
+                      <td className="px-5 py-3.5">
+                        <div className="flex flex-wrap gap-1.5">
+                          {sale.items.map((i) => (
+                            <span
+                              key={i.id}
+                              className={cn(
+                                'inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium border bg-neutral-50 border-neutral-200/70 text-neutral-700',
+                                i.quantity > 1 && 'bg-indigo-50 border-indigo-200/60 text-indigo-700'
+                              )}
+                            >
+                              <Package className="w-3 h-3 text-neutral-400" />
+                              {i.quantity > 1 && (
+                                <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-neutral-200/80 text-[10px] font-bold text-neutral-700">
+                                  {i.quantity}
+                                </span>
+                              )}
+                              <span>{i.brand} {i.model}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-3.5 text-center">
+                        <span className={cn(
+                          'text-[10px] font-bold px-2 py-1 rounded-lg border',
+                          METHOD_BADGES[sale.paymentMethod] || 'bg-neutral-100 text-neutral-600 border-neutral-200'
+                        )}>
+                          {sale.paymentMethod}
+                        </span>
+                      </td>
+
+                      <td className="px-5 py-3.5 text-right font-black text-[#121212] text-xs">
+                        {fmt(sale.totalAmount)}
+                      </td>
+
+                      <td className="px-5 py-3.5 text-right font-bold text-emerald-700 text-xs">
+                        +{fmt(sale.totalProfit)}
+                      </td>
+
+                      <td className="px-5 py-3.5 text-neutral-500 text-xs font-medium whitespace-nowrap">
+                        {formatDateTime(sale.saleDate)}
+                      </td>
+
+                      <td className="px-5 py-3.5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setSelectedSale(sale)}
+                            className="text-[11px] h-7 px-2.5 rounded-lg border-neutral-200 font-semibold text-neutral-600 hover:bg-neutral-100"
+                          >
+                            <Eye className="w-3.5 h-3.5 mr-1 text-neutral-400" /> View
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setDeleteConfirmId(sale.id)}
+                            className="text-[11px] h-7 w-7 p-0 rounded-lg text-neutral-400 hover:text-rose-600 hover:bg-rose-50"
+                            title="Delete Sale"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Cards */}
+            <div className="md:hidden">
+              {sales.map((sale, idx) => (
+                <div key={sale.id} className={cn(
+                  'relative p-4 space-y-3',
+                  idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/50'
+                )}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-bold text-[#121212]">{sale.customerName}</p>
+                      <p className="text-[11px] text-neutral-400 font-medium mt-0.5">{formatDateTime(sale.saleDate)}</p>
+                    </div>
+                    <span className={cn(
+                      'text-[10px] font-bold px-2 py-1 rounded-lg border shrink-0',
+                      METHOD_BADGES[sale.paymentMethod] || 'bg-neutral-100 text-neutral-600 border-neutral-200'
+                    )}>
+                      {sale.paymentMethod}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {sale.items.map((i) => (
+                      <span
+                        key={i.id}
+                        className={cn(
+                          'inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium border bg-neutral-50 border-neutral-200/70 text-neutral-700',
+                          i.quantity > 1 && 'bg-indigo-50 border-indigo-200/60 text-indigo-700'
+                        )}
+                      >
+                        <Package className="w-3 h-3 text-neutral-400" />
+                        {i.quantity > 1 && (
+                          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-neutral-200/80 text-[10px] font-bold text-neutral-700">
+                            {i.quantity}
+                          </span>
+                        )}
+                        <span>{i.brand} {i.model}</span>
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-neutral-100">
+                    <div className="space-y-0.5">
+                      <p className="text-[11px] font-medium text-neutral-400">Total</p>
+                      <p className="text-sm font-black text-[#121212]">{fmt(sale.totalAmount)}</p>
+                    </div>
+                    <div className="text-right space-y-0.5">
+                      <p className="text-[11px] font-medium text-neutral-400">Profit</p>
+                      <p className="text-sm font-bold text-emerald-700">+{fmt(sale.totalProfit)}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Button size="sm" variant="outline" onClick={() => setSelectedSale(sale)} className="text-[11px] h-8 px-2.5 rounded-lg border-neutral-200 font-semibold">
+                        <Eye className="w-3.5 h-3.5 text-neutral-400" />
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setDeleteConfirmId(sale.id)} className="text-[11px] h-8 w-8 p-0 rounded-lg text-neutral-400 hover:text-rose-600 hover:bg-rose-50">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                  {/* Bottom accent bar — color-coded by payment method */}
+                  <div className={cn('absolute bottom-0 left-4 right-4 h-0.5 rounded-full', METHOD_BAR[sale.paymentMethod] || 'bg-neutral-200')} />
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
-        {/* Pagination Footer */}
+        {/* Pagination */}
         {!loading && sales.length > 0 && (
-          <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between">
-            <span className="text-xs text-slate-400 font-medium">
+          <div className="px-5 py-3 border-t border-neutral-100 bg-neutral-50/40 flex items-center justify-between">
+            <span className="text-xs text-neutral-400 font-medium">
               Page {page} of {totalPages}
             </span>
             <div className="flex items-center gap-1.5">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-                className="h-8 text-xs rounded-xl border-slate-200"
-              >
+              <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="h-8 text-xs rounded-xl border-neutral-200">
                 <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Previous
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-                className="h-8 text-xs rounded-xl border-slate-200"
-              >
+              <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className="h-8 text-xs rounded-xl border-neutral-200">
                 Next <ChevronRight className="w-3.5 h-3.5 ml-1" />
               </Button>
             </div>
@@ -401,15 +476,15 @@ export default function SalesPage() {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 flex flex-col gap-4">
+        <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-neutral-100 flex flex-col gap-4">
             <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
               <Trash2 className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Delete Sale Record?</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                This transaction will be soft-deleted. Historical revenue numbers will be recalculated.
+              <h3 className="text-base font-bold text-[#121212]">Are you sure you want to delete this sale?</h3>
+              <p className="text-xs text-neutral-500 mt-1 font-medium">
+                This will remove the transaction from your records and update your total revenue.
               </p>
             </div>
             <div className="flex justify-end gap-2 mt-2">
@@ -417,7 +492,7 @@ export default function SalesPage() {
                 Cancel
               </Button>
               <Button size="sm" disabled={deleting} onClick={() => handleDelete(deleteConfirmId)} className="rounded-xl text-xs h-9 bg-rose-600 hover:bg-rose-700 text-white font-bold">
-                {deleting ? 'Deleting...' : 'Soft Delete'}
+                {deleting ? 'Deleting...' : 'Delete Sale'}
               </Button>
             </div>
           </div>

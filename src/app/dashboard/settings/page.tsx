@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Save, Download, Upload, Trash2, ShieldAlert, Check } from 'lucide-react';
+import { Save, Download, Upload, Trash2, ShieldAlert } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { updateSettingsAction, clearAllDataAction, getSettingsAction } from '@/actions/settings';
@@ -10,7 +11,6 @@ import { getStockAction } from '@/actions/stock';
 import { getSalesAction } from '@/actions/sales';
 import { getUdharAction } from '@/actions/udhar';
 import { getExpensesAction } from '@/actions/expenses';
-import { cn } from '@/lib/utils';
 
 interface Setting {
   id: number;
@@ -45,14 +45,6 @@ export default function SettingsPage() {
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState('');
 
-  // Toast
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
-
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
-  };
-
   useEffect(() => {
     const fetchSettings = async () => {
       try {
@@ -70,7 +62,7 @@ export default function SettingsPage() {
           });
         }
       } catch {
-        showToast('Failed to load settings.', 'error');
+        toast.error('Failed to load settings. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -79,14 +71,23 @@ export default function SettingsPage() {
   }, []);
 
   const handleSave = async () => {
-    setSaving(true);
-    const result = await updateSettingsAction(form);
-    if (result.success) {
-      showToast('Shop configuration saved!');
-    } else {
-      showToast(result.error || 'Failed to save settings.', 'error');
+    if (!form.shopName.trim()) {
+      toast.error('Shop name is required.');
+      return;
     }
-    setSaving(false);
+    setSaving(true);
+    try {
+      const result = await updateSettingsAction(form);
+      if (result.success) {
+        toast.success('Shop configuration saved successfully!');
+      } else {
+        toast.error(result.error || 'Failed to save settings.');
+      }
+    } catch {
+      toast.error('An unexpected error occurred. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleExportBackup = async () => {
@@ -115,21 +116,26 @@ export default function SettingsPage() {
       downloadAnchor.click();
       downloadAnchor.remove();
 
-      showToast('JSON Backup downloaded successfully!');
+      toast.success('JSON backup downloaded successfully!');
     } catch {
-      showToast('Failed to generate backup file.', 'error');
+      toast.error('Failed to generate backup file. Please try again.');
     }
   };
 
   const handleSeedData = async () => {
     setSaving(true);
-    const result = await seedSampleDataAction();
-    if (result.success) {
-      showToast('Sample data seeded successfully!');
-    } else {
-      showToast(result.error || 'Failed to seed sample data.', 'error');
+    try {
+      const result = await seedSampleDataAction();
+      if (result.success) {
+        toast.success('Sample data seeded successfully!');
+      } else {
+        toast.error(result.error || 'Failed to seed sample data.');
+      }
+    } catch {
+      toast.error('An unexpected error occurred. Please try again.');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const handleClearData = async () => {
@@ -140,27 +146,24 @@ export default function SettingsPage() {
     setClearing(true);
     setClearError('');
 
-    const result = await clearAllDataAction(clearConfirm);
-    if (result.success) {
-      showToast('Database wiped successfully!');
-      setShowClearModal(false);
-      setClearConfirm('');
-    } else {
-      setClearError(result.error || 'Wipe failed.');
+    try {
+      const result = await clearAllDataAction(clearConfirm);
+      if (result.success) {
+        toast.success('Database wiped successfully!');
+        setShowClearModal(false);
+        setClearConfirm('');
+      } else {
+        setClearError(result.error || 'Wipe failed.');
+      }
+    } catch {
+      setClearError('An unexpected error occurred. Please try again.');
+    } finally {
+      setClearing(false);
     }
-    setClearing(false);
   };
 
   return (
     <div className="flex flex-col gap-6">
-
-      {/* Toast */}
-      {toast && (
-        <div className={cn('fixed top-6 right-6 z-50 px-5 py-3.5 rounded-xl shadow-lg text-sm font-semibold border animate-in slide-in-from-top-2 duration-200', toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800')}>
-          {toast.msg}
-        </div>
-      )}
-
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Shop Settings & Backup</h1>
@@ -168,7 +171,6 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
         {/* Form Column */}
         <div className="md:col-span-2 bg-white rounded-xl border border-slate-200 p-6 shadow-2xs flex flex-col gap-5">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -205,7 +207,6 @@ export default function SettingsPage() {
 
         {/* Backup & Tools Column */}
         <div className="flex flex-col gap-6">
-
           {/* Seed Box */}
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col gap-4">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -244,9 +245,7 @@ export default function SettingsPage() {
               <Trash2 className="w-3.5 h-3.5" /> Clear All Data
             </Button>
           </div>
-
         </div>
-
       </div>
 
       {/* Clear Data Modal */}
@@ -273,7 +272,6 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
-
     </div>
   );
 }
