@@ -1,0 +1,135 @@
+// Prisma Schema — MobileShop POS & Inventory Management System
+// Pattern: every model has createdAt, updatedAt, deletedAt (soft delete)
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Stock {
+  id             Int        @id @default(autoincrement())
+  brand          String
+  model          String
+  variant        String?
+  condition      String     // 'New', 'Refurbished', 'Open Box'
+  purchasePrice  Decimal    @db.Decimal(10, 2)
+  sellingPrice   Decimal    @db.Decimal(10, 2)
+  quantity       Int        @default(0)
+  lowStockAlert  Int        @default(2)
+  imei           String?
+  notes          String?
+  dateAdded      DateTime   @default(now()) @db.Date
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  deletedAt      DateTime?  // soft delete
+
+  saleItems      SaleItem[]
+
+  @@index([brand, model])
+  @@index([deletedAt])
+}
+
+model Sale {
+  id            Int        @id @default(autoincrement())
+  customerName  String     @default("Walk-in")
+  paymentMethod String     // 'Cash', 'Card', 'Easypaisa', 'JazzCash', 'Bank Transfer', 'Udhar'
+  totalAmount   Decimal    @db.Decimal(10, 2)
+  totalProfit   Decimal    @db.Decimal(10, 2)
+  totalCost     Decimal    @db.Decimal(10, 2)
+  isUdhar       Boolean    @default(false)
+  saleDate      DateTime   @default(now()) @db.Date
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime?  // soft delete
+
+  items         SaleItem[]
+  udhar         Udhar?
+
+  @@index([saleDate])
+  @@index([deletedAt])
+}
+
+model SaleItem {
+  id            Int      @id @default(autoincrement())
+  saleId        Int
+  sale          Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  stockId       Int?
+  stock         Stock?   @relation(fields: [stockId], references: [id], onDelete: SetNull)
+  brand         String
+  model         String
+  variant       String?
+  purchasePrice Decimal  @db.Decimal(10, 2)
+  salePrice     Decimal  @db.Decimal(10, 2)
+  quantity      Int
+  subtotal      Decimal  @db.Decimal(10, 2)
+  profit        Decimal  @db.Decimal(10, 2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Udhar {
+  id            Int            @id @default(autoincrement())
+  saleId        Int?           @unique
+  sale          Sale?          @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  customerName  String
+  customerPhone String
+  phoneSold     String?
+  totalAmount   Decimal        @db.Decimal(10, 2)
+  paidAmount    Decimal        @default(0) @db.Decimal(10, 2)
+  remaining     Decimal        @db.Decimal(10, 2)
+  dueDate       DateTime?      @db.Date
+  notes         String?
+  status        String         @default("Unpaid") // 'Unpaid', 'Partial', 'Paid'
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?      // soft delete
+
+  payments      UdharPayment[]
+
+  @@index([status, dueDate])
+  @@index([deletedAt])
+}
+
+model UdharPayment {
+  id          Int      @id @default(autoincrement())
+  udharId     Int
+  udhar       Udhar    @relation(fields: [udharId], references: [id], onDelete: Cascade)
+  amountPaid  Decimal  @db.Decimal(10, 2)
+  paymentDate DateTime @default(now()) @db.Date
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime? // soft delete
+}
+
+model Expense {
+  id          Int       @id @default(autoincrement())
+  description String
+  amount      Decimal   @db.Decimal(10, 2)
+  category    String    // Rent, Electricity, Salary, Transport, Stock Purchase, Repair & Maintenance, Marketing, Other
+  expenseDate DateTime  @default(now()) @db.Date
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime? // soft delete
+
+  @@index([expenseDate, category])
+  @@index([deletedAt])
+}
+
+model Setting {
+  id            Int     @id @default(1)
+  shopName      String  @default("My Mobile Shop")
+  ownerName     String?
+  phoneNumber   String?
+  address       String?
+  city          String?
+  receiptFooter String  @default("Thank you for your purchase!")
+  currencyLabel String  @default("Rs")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
