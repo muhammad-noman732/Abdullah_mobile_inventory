@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache';
 import prisma from '@/lib/prisma';
-import { Prisma } from '@prisma/client';
 import { AccessoryCreateSchema, AccessoryUpdateSchema } from '@/lib/validation';
 import type { ActionResult } from '@/actions/stock';
 
@@ -19,12 +18,12 @@ export async function getAccessoriesAction(params: {
     const limit = Math.min(500, Math.max(1, params.limit || 50));
     const skip = (page - 1) * limit;
 
-    const where: Prisma.AccessoryWhereInput = { deletedAt: null };
+    const where: any = { deletedAt: null };
     if (search) {
       where.name = { contains: search, mode: 'insensitive' };
     }
 
-    const orderByMap: Record<string, Prisma.AccessoryOrderByWithRelationInput> = {
+    const orderByMap: Record<string, any> = {
       newest: { createdAt: 'desc' },
       oldest: { createdAt: 'asc' },
       price_desc: { purchasePrice: 'desc' },

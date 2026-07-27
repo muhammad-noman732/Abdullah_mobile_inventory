@@ -175,7 +175,7 @@ export async function getDashboardMetricsAction() {
     return {
       success: false,
       data: {
-        totalStockUnits: 0, stockCostValue: 0, stockSellingValue: 0,
+        totalStockUnits: 0, stockCostValue: 0,
         todaySalesRevenue: 0, todayProfit: 0, todayTransactions: 0,
         monthRevenue: 0, monthProfit: 0, monthTransactions: 0,
         outstandingUdhar: 0, activeDebtors: 0,
