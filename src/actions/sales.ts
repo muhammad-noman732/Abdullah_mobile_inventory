@@ -6,8 +6,8 @@ import { Prisma } from '@prisma/client';
 import { SaleCreateSchema } from '@/lib/validation';
 import type { ActionResult } from '@/actions/stock';
 
-// ── READ: Fetch paginated sales list with filters ──────────────────────────────
 export async function getSalesAction(params: {
+  filter?: string;
   from?: string;
   to?: string;
   paymentMethod?: string;
@@ -16,6 +16,7 @@ export async function getSalesAction(params: {
   limit?: number;
 }) {
   try {
+    const filter = params.filter;
     const from = params.from;
     const to = params.to;
     const paymentMethod = params.paymentMethod;
@@ -26,13 +27,63 @@ export async function getSalesAction(params: {
 
     const where: Prisma.SaleWhereInput = { deletedAt: null };
 
-    if (from || to) {
-      where.saleDate = {};
-      if (from) (where.saleDate as any).gte = new Date(from);
-      if (to) {
-        const toDate = new Date(to);
-        toDate.setHours(23, 59, 59, 999);
-        (where.saleDate as any).lte = toDate;
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    if (filter === 'custom') {
+      if (from || to) {
+        where.saleDate = {};
+        if (from) (where.saleDate as any).gte = new Date(from);
+        if (to) {
+          const toDate = new Date(to);
+          toDate.setHours(23, 59, 59, 999);
+          (where.saleDate as any).lte = toDate;
+        }
+      }
+    } else if (filter) {
+      let dateFrom: Date | null = null;
+      let dateTo: Date | null = null;
+
+      switch (filter) {
+        case 'today':
+          dateFrom = new Date(todayStart);
+          dateTo = new Date(todayStart);
+          break;
+        case 'week': {
+          const weekStart = new Date(todayStart);
+          const day = weekStart.getDay();
+          weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1));
+          dateFrom = weekStart;
+          dateTo = new Date(todayStart);
+          break;
+        }
+        case 'month':
+          dateFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+          dateTo = new Date(todayStart);
+          break;
+        case 'lastmonth': {
+          dateFrom = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          dateTo = new Date(now.getFullYear(), now.getMonth(), 0);
+          break;
+        }
+      }
+
+      if (dateFrom && dateTo) {
+        where.saleDate = {};
+        (where.saleDate as any).gte = dateFrom;
+        dateTo.setHours(23, 59, 59, 999);
+        (where.saleDate as any).lte = dateTo;
+      }
+    } else {
+      // fallback: direct from/to (used by daily-sales page)
+      if (from || to) {
+        where.saleDate = {};
+        if (from) (where.saleDate as any).gte = new Date(from);
+        if (to) {
+          const toDate = new Date(to);
+          toDate.setHours(23, 59, 59, 999);
+          (where.saleDate as any).lte = toDate;
+        }
       }
     }
 
@@ -44,7 +95,6 @@ export async function getSalesAction(params: {
       where.OR = [
         { customerName: { contains: search, mode: 'insensitive' } },
         { items: { some: { model: { contains: search, mode: 'insensitive' } } } },
-        { items: { some: { brand: { contains: search, mode: 'insensitive' } } } },
       ];
     }
 
@@ -74,7 +124,6 @@ export async function getSalesAction(params: {
     const totalProfit = Number(summaryAgg._sum.totalProfit || 0);
     const totalTransactions = summaryAgg._count.id;
     const totalUnits = unitsSoldAgg._sum.quantity || 0;
-    const avgSale = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
     const formattedSales = rawSales.map((sale) => ({
       ...sale,
@@ -95,19 +144,8 @@ export async function getSalesAction(params: {
     return {
       success: true,
       data: formattedSales,
-      pagination: {
-        total: totalCount,
-        page,
-        limit,
-        totalPages: Math.ceil(totalCount / limit),
-      },
-      summary: {
-        totalRevenue,
-        totalProfit,
-        totalTransactions,
-        totalUnits,
-        avgSale,
-      },
+      pagination: { total: totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) },
+      summary: { totalRevenue, totalProfit, totalTransactions, totalUnits },
     };
   } catch (error: any) {
     console.error('getSalesAction error:', error);
@@ -116,12 +154,11 @@ export async function getSalesAction(params: {
       error: 'Failed to fetch sales history',
       data: [],
       pagination: { total: 0, page: 1, limit: 20, totalPages: 0 },
-      summary: { totalRevenue: 0, totalProfit: 0, totalTransactions: 0, totalUnits: 0, avgSale: 0 },
+      summary: { totalRevenue: 0, totalProfit: 0, totalTransactions: 0, totalUnits: 0 },
     };
   }
 }
 
-// ── READ: Fetch today and month sales summary ─────────────────────────────────
 export async function getSalesSummaryAction() {
   try {
     const today = new Date();
@@ -133,21 +170,21 @@ export async function getSalesSummaryAction() {
 
     const [todaySales, monthSales, totalUnitsToday, totalUnitsMonth] = await Promise.all([
       prisma.sale.aggregate({
-        where: { saleDate: { gte: today, lte: todayEnd } },
+        where: { saleDate: { gte: today, lte: todayEnd }, deletedAt: null },
         _sum: { totalAmount: true, totalProfit: true },
         _count: { id: true },
       }),
       prisma.sale.aggregate({
-        where: { saleDate: { gte: monthStart } },
+        where: { saleDate: { gte: monthStart }, deletedAt: null },
         _sum: { totalAmount: true, totalProfit: true },
         _count: { id: true },
       }),
       prisma.saleItem.aggregate({
-        where: { sale: { saleDate: { gte: today, lte: todayEnd } } },
+        where: { sale: { saleDate: { gte: today, lte: todayEnd }, deletedAt: null } },
         _sum: { quantity: true },
       }),
       prisma.saleItem.aggregate({
-        where: { sale: { saleDate: { gte: monthStart } } },
+        where: { sale: { saleDate: { gte: monthStart }, deletedAt: null } },
         _sum: { quantity: true },
       }),
     ]);
@@ -170,7 +207,6 @@ export async function getSalesSummaryAction() {
       },
     };
   } catch (error: any) {
-    console.error('getSalesSummaryAction error:', error);
     return {
       success: false,
       data: {
@@ -181,7 +217,6 @@ export async function getSalesSummaryAction() {
   }
 }
 
-// ── MUTATION: Record a new sale (atomic multi-item) ───────────────────────────
 export async function createSaleAction(payload: unknown): Promise<ActionResult<{ saleId: number }>> {
   const parsed = SaleCreateSchema.safeParse(payload);
 
@@ -193,30 +228,74 @@ export async function createSaleAction(payload: unknown): Promise<ActionResult<{
     };
   }
 
-  const { items, customerName, paymentMethod, isUdhar, customerPhone, paidUpfront, dueDate, notes } =
-    parsed.data;
+  const { items, customerName, paymentMethod, isUdhar } = parsed.data;
 
   try {
     const result = await prisma.$transaction(async (tx) => {
       let totalCost = 0;
       let totalAmount = 0;
+      const saleItemData: any[] = [];
 
-      const stockItems = await Promise.all(
-        items.map(async (item) => {
-          const stock = await tx.stock.findUnique({ where: { id: item.stockId } });
+      for (const item of items) {
+        if (item.itemType === 'mobile') {
+          const stock = await tx.stock.findUnique({ where: { id: item.stockId! } });
           if (!stock) throw new Error(`Stock item ID ${item.stockId} not found.`);
+          if (stock.deletedAt) throw new Error(`Stock item ${stock.model} has already been sold.`);
           if (stock.quantity < item.quantity)
-            throw new Error(
-              `Insufficient stock for ${stock.brand} ${stock.model}. Available: ${stock.quantity}`
-            );
-          return { stock, requestedQty: item.quantity, salePrice: item.salePrice };
-        })
-      );
+            throw new Error(`Insufficient stock for ${stock.model}. Available: ${stock.quantity}`);
 
-      stockItems.forEach(({ stock, requestedQty, salePrice }) => {
-        totalCost += Number(stock.purchasePrice) * requestedQty;
-        totalAmount += salePrice * requestedQty;
-      });
+          totalCost += Number(stock.purchasePrice) * item.quantity;
+          totalAmount += item.salePrice * item.quantity;
+
+          saleItemData.push({
+            stockId: stock.id,
+            accessoryId: null,
+            itemType: 'mobile',
+            brand: 'Mobile',
+            model: stock.model,
+            variant: null,
+            quantity: item.quantity,
+            purchasePrice: stock.purchasePrice,
+            salePrice: item.salePrice,
+            subtotal: item.salePrice * item.quantity,
+            profit: (item.salePrice - Number(stock.purchasePrice)) * item.quantity,
+          });
+
+          const newQty = stock.quantity - item.quantity;
+          await tx.stock.update({
+            where: { id: stock.id },
+            data: { quantity: Math.max(0, newQty) },
+          });
+        } else {
+          const accessory = await tx.accessory.findUnique({ where: { id: item.accessoryId! } });
+          if (!accessory) throw new Error(`Accessory ID ${item.accessoryId} not found.`);
+          if (accessory.quantity < item.quantity)
+            throw new Error(`Insufficient stock for ${accessory.name}. Available: ${accessory.quantity}`);
+
+          totalCost += Number(accessory.purchasePrice) * item.quantity;
+          totalAmount += item.salePrice * item.quantity;
+
+          saleItemData.push({
+            stockId: null,
+            accessoryId: accessory.id,
+            itemType: 'accessory',
+            brand: 'Accessory',
+            model: accessory.name,
+            variant: null,
+            quantity: item.quantity,
+            purchasePrice: accessory.purchasePrice,
+            salePrice: item.salePrice,
+            subtotal: item.salePrice * item.quantity,
+            profit: (item.salePrice - Number(accessory.purchasePrice)) * item.quantity,
+          });
+
+          const newQty = accessory.quantity - item.quantity;
+          await tx.accessory.update({
+            where: { id: accessory.id },
+            data: { quantity: Math.max(0, newQty) },
+          });
+        }
+      }
 
       const totalProfit = totalAmount - totalCost;
 
@@ -229,66 +308,17 @@ export async function createSaleAction(payload: unknown): Promise<ActionResult<{
           totalProfit,
           isUdhar,
           saleDate: new Date(),
-          items: {
-            create: stockItems.map(({ stock, requestedQty, salePrice }) => ({
-              stockId: stock.id,
-              brand: stock.brand,
-              model: stock.model,
-              variant: stock.variant,
-              quantity: requestedQty,
-              purchasePrice: stock.purchasePrice,
-              salePrice,
-              subtotal: salePrice * requestedQty,
-              profit: (salePrice - Number(stock.purchasePrice)) * requestedQty,
-            })),
-          },
+          items: { create: saleItemData },
         },
       });
-
-      await Promise.all(
-        stockItems.map(({ stock, requestedQty }) =>
-          tx.stock.update({
-            where: { id: stock.id },
-            data: { quantity: stock.quantity - requestedQty },
-          })
-        )
-      );
-
-      if (isUdhar) {
-        const paid = paidUpfront || 0;
-        const remaining = Math.max(0, totalAmount - paid);
-        const status = remaining === 0 ? 'Paid' : paid > 0 ? 'Partial' : 'Unpaid';
-        const phoneSold = stockItems
-          .map(({ stock }) => `${stock.brand} ${stock.model}`)
-          .join(', ');
-
-        await tx.udhar.create({
-          data: {
-            saleId: sale.id,
-            customerName: customerName || 'Walk-in',
-            customerPhone: customerPhone || '',
-            phoneSold,
-            totalAmount,
-            paidAmount: paid,
-            remaining,
-            dueDate: dueDate ? new Date(dueDate) : null,
-            notes: notes || null,
-            status,
-            ...(paid > 0 && {
-              payments: {
-                create: { amountPaid: paid, notes: 'Upfront payment at time of sale' },
-              },
-            }),
-          },
-        });
-      }
 
       return sale;
     });
 
-    revalidatePath('/dashboard/stock');
+    revalidatePath('/dashboard/daily-sales');
     revalidatePath('/dashboard/sales');
-    revalidatePath('/dashboard/udhar');
+    revalidatePath('/dashboard/stock');
+    revalidatePath('/dashboard/accessories');
     revalidatePath('/dashboard');
 
     return { success: true, data: { saleId: result.id } };
@@ -298,18 +328,40 @@ export async function createSaleAction(payload: unknown): Promise<ActionResult<{
   }
 }
 
-// ── MUTATION: Soft-delete a sale ──────────────────────────────────────────
 export async function deleteSaleAction(id: number): Promise<ActionResult> {
   try {
-    const existing = await prisma.sale.findFirst({ where: { id, deletedAt: null } });
+    const existing = await prisma.sale.findFirst({
+      where: { id, deletedAt: null },
+      include: { items: true },
+    });
     if (!existing) return { success: false, error: 'Sale not found.' };
 
-    await prisma.sale.update({
-      where: { id },
-      data: { deletedAt: new Date() },
+    await prisma.$transaction(async (tx) => {
+      for (const item of existing.items) {
+        if (item.stockId) {
+          await tx.stock.update({
+            where: { id: item.stockId },
+            data: { quantity: { increment: item.quantity } },
+          });
+        }
+        if (item.accessoryId) {
+          await tx.accessory.update({
+            where: { id: item.accessoryId },
+            data: { quantity: { increment: item.quantity } },
+          });
+        }
+      }
+
+      await tx.sale.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+      });
     });
 
     revalidatePath('/dashboard/sales');
+    revalidatePath('/dashboard/daily-sales');
+    revalidatePath('/dashboard/stock');
+    revalidatePath('/dashboard/accessories');
     revalidatePath('/dashboard');
     return { success: true };
   } catch (err) {

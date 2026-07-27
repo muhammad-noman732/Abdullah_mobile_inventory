@@ -25,7 +25,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="flex-1 md:pl-60 flex flex-col min-h-screen">
         <Topbar onMenuClick={() => setSidebarOpen((v) => !v)} />
         <main className="flex-1 p-4 md:p-8 overflow-y-auto">
-          {children}
+          <div className="mx-auto w-full" style={{ maxWidth: '1440px' }}>
+            {children}
+          </div>
         </main>
       </div>
     </div>

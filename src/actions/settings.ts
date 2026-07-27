@@ -82,6 +82,7 @@ export async function clearAllDataAction(confirmationText: string): Promise<Acti
       prisma.sale.deleteMany(),
       prisma.expense.deleteMany(),
       prisma.stock.deleteMany(),
+      prisma.accessory.deleteMany(),
     ]);
 
     revalidatePath('/dashboard');

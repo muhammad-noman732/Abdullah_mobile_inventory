@@ -39,7 +39,7 @@ export function SparklineCard({
   const conf = colorConfig[color];
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 sm:p-5 flex flex-col justify-between hover:border-slate-300 transition-all duration-150">
+    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-3 sm:p-4 flex flex-col justify-between hover:border-slate-300 transition-all duration-150">
       {/* Top Row: Title + Icon */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -47,15 +47,15 @@ export function SparklineCard({
           <p className="text-[11px] font-medium text-slate-400 mt-1 truncate">{subtitle}</p>
         </div>
         {Icon && (
-          <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center border shrink-0', conf.iconBg)}>
-            <Icon className="w-4 h-4" />
+          <div className={cn('w-7 h-7 rounded-xl flex items-center justify-center border shrink-0', conf.iconBg)}>
+            <Icon className="w-3.5 h-3.5" />
           </div>
         )}
       </div>
 
-      {/* Metric Row: Crisp single line value + trend badge */}
-      <div className="mt-4 flex flex-col gap-1">
-        <span className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+      {/* Metric Row */}
+      <div className="mt-3 flex flex-col gap-1">
+        <span className="text-lg sm:text-xl font-black text-slate-900 tracking-tight leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
           {value}
         </span>
         {trendText && (

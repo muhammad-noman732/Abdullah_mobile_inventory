@@ -58,22 +58,22 @@ export async function getUdharAction(params: {
       prisma.udhar.count({ where }),
     ]);
 
-    const todayStart = new Date();
-    todayStart.setDate(1);
-    todayStart.setHours(0, 0, 0, 0);
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
 
     const [outstanding, overdueAgg, collectedMonth] = await Promise.all([
       prisma.udhar.aggregate({
-        where: { status: { not: 'Paid' } },
+        where: { status: { not: 'Paid' }, deletedAt: null },
         _sum: { remaining: true },
         _count: { id: true },
       }),
       prisma.udhar.aggregate({
-        where: { status: { not: 'Paid' }, dueDate: { lt: new Date() } },
+        where: { status: { not: 'Paid' }, dueDate: { lt: today }, deletedAt: null },
         _sum: { remaining: true },
       }),
       prisma.udharPayment.aggregate({
-        where: { paymentDate: { gte: todayStart } },
+        where: { paymentDate: { gte: monthStart }, deletedAt: null, udhar: { deletedAt: null } },
         _sum: { amountPaid: true },
       }),
     ]);
@@ -132,7 +132,7 @@ export async function getUdharPaymentHistoryAction(udharId: number) {
   }
 }
 
-// ── MUTATION: Create new Udhar entry ──────────────────────────────────────────
+// ── MUTATION: Create new Udhar entry (standalone, no Sale record) ─────────────
 export async function createUdharAction(payload: unknown): Promise<ActionResult> {
   const parsed = UdharCreateSchema.safeParse(payload);
   if (!parsed.success) {
@@ -177,7 +177,7 @@ export async function createUdharAction(payload: unknown): Promise<ActionResult>
   }
 }
 
-// ── MUTATION: Record an installment payment ───────────────────────────────────
+// ── MUTATION: Record an installment payment (with concurrency-safe transaction) ──
 export async function recordUdharPaymentAction(
   udharId: number,
   payload: unknown
@@ -194,17 +194,15 @@ export async function recordUdharPaymentAction(
   const { amountPaid, paymentDate, notes } = parsed.data;
 
   try {
-    const udhar = await prisma.udhar.findUnique({ where: { id: udharId } });
-    if (!udhar) return { success: false, error: 'Udhar record not found.' };
-    if (udhar.status === 'Paid') return { success: false, error: 'This credit is already fully paid.' };
-    if (amountPaid > Number(udhar.remaining)) {
-      return {
-        success: false,
-        error: `Payment (Rs ${amountPaid}) exceeds remaining balance (Rs ${udhar.remaining}).`,
-      };
-    }
-
     await prisma.$transaction(async (tx) => {
+      const udhar = await tx.udhar.findUnique({ where: { id: udharId } });
+      if (!udhar) throw new Error('Udhar record not found.');
+      if (udhar.deletedAt) throw new Error('This credit record has been deleted.');
+      if (udhar.status === 'Paid') throw new Error('This credit is already fully paid.');
+      if (amountPaid > Number(udhar.remaining)) {
+        throw new Error(`Payment (Rs ${amountPaid}) exceeds remaining balance (Rs ${udhar.remaining}).`);
+      }
+
       await tx.udharPayment.create({
         data: {
           udharId,
@@ -233,16 +231,17 @@ export async function recordUdharPaymentAction(
   }
 }
 
-// ── MUTATION: Soft-delete Udhar record ───────────────────────────────────
+// ── MUTATION: Soft-delete Udhar record and its payments ──────────────────
 export async function deleteUdharAction(id: number): Promise<ActionResult> {
   try {
     const existing = await prisma.udhar.findFirst({ where: { id, deletedAt: null } });
     if (!existing) return { success: false, error: 'Udhar record not found.' };
 
-    await prisma.udhar.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
+    const now = new Date();
+    await prisma.$transaction([
+      prisma.udharPayment.updateMany({ where: { udharId: id, deletedAt: null }, data: { deletedAt: now } }),
+      prisma.udhar.update({ where: { id }, data: { deletedAt: now } }),
+    ]);
     revalidatePath('/dashboard/udhar');
     revalidatePath('/dashboard');
     return { success: true };

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Package, Receipt, Wallet, Banknote,
-  BarChart3, Settings, X
+  BarChart3, Settings, X, ShoppingCart, Smartphone
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -15,7 +15,9 @@ interface SidebarProps {
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { href: '/dashboard/stock', label: 'Stock', icon: Package },
+  { href: '/dashboard/daily-sales', label: 'Daily Sales', icon: ShoppingCart },
+  { href: '/dashboard/stock', label: 'Stock', icon: Smartphone },
+  { href: '/dashboard/accessories', label: 'Accessories', icon: Package },
   { href: '/dashboard/sales', label: 'Sales History', icon: Receipt },
   { href: '/dashboard/udhar', label: 'Udhar Khata', icon: Wallet },
   { href: '/dashboard/expenses', label: 'Expenses', icon: Banknote },
@@ -32,7 +34,6 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
   return (
     <>
-      {/* Mobile overlay */}
       {isOpen && onClose && (
         <div
           className="md:hidden fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
@@ -47,7 +48,6 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
           onClose ? (isOpen ? 'translate-x-0' : '-translate-x-full') : 'md:flex'
         )}
       >
-        {/* Brand Header with Close Button */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-neutral-100 shrink-0">
           <Link href="/dashboard" className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-[#121212] flex items-center justify-center text-white shadow-xs">
@@ -80,7 +80,6 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
           )}
         </div>
 
-        {/* Navigation List */}
         <nav className="flex-1 px-3 py-4 flex flex-col gap-1 overflow-y-auto">
           <div className="px-3 mb-2 text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
             Menu
@@ -107,7 +106,6 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
           })}
         </nav>
 
-        {/* Settings Link at Bottom */}
         <div className="p-3 border-t border-neutral-100">
           <Link
             href="/dashboard/settings"

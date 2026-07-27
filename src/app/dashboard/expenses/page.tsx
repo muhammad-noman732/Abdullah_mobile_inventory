@@ -130,13 +130,12 @@ export default function ExpensesPage() {
       });
 
       if (res.success && res.data) {
-        const summary = (res as any).summary;
         setExpenses(res.data as any);
-        setTotalAmount(summary?.totalAmount || 0);
-        setTotalCount(summary?.totalCount || 0);
-        setThisMonthTotal(summary?.thisMonthTotal || 0);
-        setThisYearTotal(summary?.thisYearTotal || 0);
-        setCategoryBreakdown(summary?.categoryBreakdown || []);
+        setTotalAmount(res.totalAmount || 0);
+        setTotalCount(res.totalCount || 0);
+        setThisMonthTotal(res.thisMonthTotal || 0);
+        setThisYearTotal(res.thisYearTotal || 0);
+        setCategoryBreakdown(res.categoryBreakdown || []);
       }
     } catch {
       toast.error('Failed to load expenses. Please try again.');

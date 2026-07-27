@@ -14,13 +14,14 @@ export async function getDashboardMetricsAction() {
     const monthEnd = endOfMonth(new Date());
     const sevenDaysAgo = subDays(today, 6);
 
-    const [allStock, todaySales, monthSales, recentSalesRaw, outstandingAgg, urgentUdhar, last7DaysSales] = await Promise.all([
+    const [allStock, allAccessories, todaySales, monthSales, recentSalesRaw, outstandingAgg, urgentUdhar, last7DaysSales] = await Promise.all([
       prisma.stock.findMany({
         where: { deletedAt: null },
-        select: {
-          id: true, brand: true, model: true, variant: true,
-          purchasePrice: true, sellingPrice: true, quantity: true, lowStockAlert: true,
-        },
+        select: { purchasePrice: true, quantity: true },
+      }),
+      prisma.accessory.findMany({
+        where: { deletedAt: null },
+        select: { purchasePrice: true, quantity: true },
       }),
       prisma.sale.aggregate({
         where: { saleDate: { gte: today, lte: todayEnd }, deletedAt: null },
@@ -59,14 +60,13 @@ export async function getDashboardMetricsAction() {
       }),
     ]);
 
-    // Build 7-day sparkline arrays
     const sparklineMap: Record<string, { revenue: number; profit: number }> = {};
     for (let i = 6; i >= 0; i--) {
       const d = format(subDays(today, i), 'yyyy-MM-dd');
       sparklineMap[d] = { revenue: 0, profit: 0 };
     }
     last7DaysSales.forEach((sale) => {
-      const dateKey = format(new Date(sale.saleDate), 'yyyy-MM-dd');
+      const dateKey = sale.saleDate.toISOString().slice(0, 10);
       if (sparklineMap[dateKey]) {
         sparklineMap[dateKey].revenue += Number(sale.totalAmount);
         sparklineMap[dateKey].profit += Number(sale.totalProfit);
@@ -78,7 +78,6 @@ export async function getDashboardMetricsAction() {
       profit: Object.entries(sparklineMap).map(([day, val]) => ({ day, val: val.profit })),
     };
 
-    // Payment method breakdown for pie chart
     const paymentBreakdownRaw = await prisma.sale.groupBy({
       by: ['paymentMethod'],
       where: { saleDate: { gte: monthStart, lte: monthEnd }, deletedAt: null },
@@ -86,7 +85,6 @@ export async function getDashboardMetricsAction() {
       _count: { id: true },
     });
 
-    // Top selling this month
     const topSelling = await prisma.saleItem.groupBy({
       by: ['brand', 'model'],
       where: { sale: { saleDate: { gte: monthStart, lte: monthEnd }, deletedAt: null } },
@@ -95,27 +93,22 @@ export async function getDashboardMetricsAction() {
       take: 5,
     });
 
-    let totalUnits = 0;
+    let stockUnits = 0;
     let stockCostValue = 0;
-    let stockSellingValue = 0;
-    const lowStockItems: any[] = [];
-
     allStock.forEach((item) => {
-      totalUnits += item.quantity;
+      stockUnits += item.quantity;
       stockCostValue += Number(item.purchasePrice) * item.quantity;
-      stockSellingValue += Number(item.sellingPrice) * item.quantity;
-      if (item.quantity <= item.lowStockAlert) {
-        lowStockItems.push({
-          id: item.id,
-          brand: item.brand,
-          model: item.model,
-          variant: item.variant,
-          quantity: item.quantity,
-          lowStockAlert: item.lowStockAlert,
-          sellingPrice: Number(item.sellingPrice),
-        });
-      }
     });
+
+    let accessoryUnits = 0;
+    let accessoryCostValue = 0;
+    allAccessories.forEach((item) => {
+      accessoryUnits += item.quantity;
+      accessoryCostValue += Number(item.purchasePrice) * item.quantity;
+    });
+
+    const totalInventoryUnits = stockUnits + accessoryUnits;
+    const totalCostValue = stockCostValue + accessoryCostValue;
 
     const formattedRecentSales = recentSalesRaw.map((sale) => ({
       ...sale,
@@ -150,9 +143,8 @@ export async function getDashboardMetricsAction() {
     return {
       success: true,
       data: {
-        totalStockUnits: totalUnits,
-        stockCostValue,
-        stockSellingValue,
+        totalStockUnits: totalInventoryUnits,
+        stockCostValue: totalCostValue,
         todaySalesRevenue: Number(todaySales._sum.totalAmount || 0),
         todayProfit: Number(todaySales._sum.totalProfit || 0),
         todayTransactions: todaySales._count.id,
@@ -161,8 +153,8 @@ export async function getDashboardMetricsAction() {
         monthTransactions: monthSales._count.id,
         outstandingUdhar: Number(outstandingAgg._sum.remaining || 0),
         activeDebtors: outstandingAgg._count.id,
-        lowStockCount: lowStockItems.length,
-        lowStockItems,
+        lowStockCount: 0,
+        lowStockItems: [],
         recentSales: formattedRecentSales,
         urgentUdhar: formattedUrgentUdhar,
         sparklines,

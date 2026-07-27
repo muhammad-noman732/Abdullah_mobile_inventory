@@ -11,25 +11,32 @@ generator client {
 }
 
 model Stock {
-  id             Int        @id @default(autoincrement())
-  brand          String
-  model          String
-  variant        String?
-  condition      String     // 'New', 'Refurbished', 'Open Box'
-  purchasePrice  Decimal    @db.Decimal(10, 2)
-  sellingPrice   Decimal    @db.Decimal(10, 2)
-  quantity       Int        @default(0)
-  lowStockAlert  Int        @default(2)
-  imei           String?
-  notes          String?
-  dateAdded      DateTime   @default(now()) @db.Date
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
-  deletedAt      DateTime?  // soft delete
+  id            Int        @id @default(autoincrement())
+  model         String
+  purchasePrice Decimal    @db.Decimal(10, 2)
+  quantity      Int        @default(1)
+  dateAdded     DateTime   @default(now()) @db.Date
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime?
 
-  saleItems      SaleItem[]
+  saleItems     SaleItem[]
 
-  @@index([brand, model])
+  @@index([deletedAt])
+}
+
+model Accessory {
+  id            Int        @id @default(autoincrement())
+  name          String
+  purchasePrice Decimal    @db.Decimal(10, 2)
+  quantity      Int        @default(0)
+  dateAdded     DateTime   @default(now()) @db.Date
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime?
+
+  saleItems     SaleItem[]
+
   @@index([deletedAt])
 }
 
@@ -44,7 +51,7 @@ model Sale {
   saleDate      DateTime   @default(now()) @db.Date
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
-  deletedAt     DateTime?  // soft delete
+  deletedAt     DateTime?
 
   items         SaleItem[]
   udhar         Udhar?
@@ -54,21 +61,24 @@ model Sale {
 }
 
 model SaleItem {
-  id            Int      @id @default(autoincrement())
+  id            Int        @id @default(autoincrement())
   saleId        Int
-  sale          Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  sale          Sale       @relation(fields: [saleId], references: [id], onDelete: Cascade)
   stockId       Int?
-  stock         Stock?   @relation(fields: [stockId], references: [id], onDelete: SetNull)
+  accessoryId   Int?
+  stock         Stock?     @relation(fields: [stockId], references: [id], onDelete: SetNull)
+  accessory     Accessory? @relation(fields: [accessoryId], references: [id], onDelete: SetNull)
+  itemType      String     @default("mobile") // 'mobile' or 'accessory'
   brand         String
   model         String
   variant       String?
-  purchasePrice Decimal  @db.Decimal(10, 2)
-  salePrice     Decimal  @db.Decimal(10, 2)
+  purchasePrice Decimal    @db.Decimal(10, 2)
+  salePrice     Decimal    @db.Decimal(10, 2)
   quantity      Int
-  subtotal      Decimal  @db.Decimal(10, 2)
-  profit        Decimal  @db.Decimal(10, 2)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  subtotal      Decimal    @db.Decimal(10, 2)
+  profit        Decimal    @db.Decimal(10, 2)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 }
 
 model Udhar {
@@ -86,7 +96,7 @@ model Udhar {
   status        String         @default("Unpaid") // 'Unpaid', 'Partial', 'Paid'
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
-  deletedAt     DateTime?      // soft delete
+  deletedAt     DateTime?
 
   payments      UdharPayment[]
 
@@ -103,7 +113,7 @@ model UdharPayment {
   notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  deletedAt   DateTime? // soft delete
+  deletedAt   DateTime?
 }
 
 model Expense {
@@ -115,21 +125,21 @@ model Expense {
   notes       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime? // soft delete
+  deletedAt   DateTime?
 
   @@index([expenseDate, category])
   @@index([deletedAt])
 }
 
 model Setting {
-  id            Int     @id @default(1)
-  shopName      String  @default("My Mobile Shop")
+  id            Int      @id @default(1)
+  shopName      String   @default("My Mobile Shop")
   ownerName     String?
   phoneNumber   String?
   address       String?
   city          String?
-  receiptFooter String  @default("Thank you for your purchase!")
-  currencyLabel String  @default("Rs")
+  receiptFooter String   @default("Thank you for your purchase!")
+  currencyLabel String   @default("Rs")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

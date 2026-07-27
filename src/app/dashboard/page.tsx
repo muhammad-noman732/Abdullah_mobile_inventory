@@ -18,7 +18,8 @@ import {
 interface DashboardMetrics {
   totalStockUnits: number;
   stockCostValue: number;
-  stockSellingValue: number;
+
+
   todaySalesRevenue: number;
   todayProfit: number;
   todayTransactions: number;
@@ -118,7 +119,7 @@ export default function DashboardPage() {
         <SparklineCard
           title="Stock Value"
           subtitle="Total inventory value"
-          value={fmt(metrics.stockSellingValue)}
+          value={fmt(metrics.stockCostValue)}
           color="purple"
           icon={Package}
           trendText={`${metrics.totalStockUnits} total units in stock`}

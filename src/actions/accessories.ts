@@ -3,16 +3,10 @@
 import { revalidatePath } from 'next/cache';
 import prisma from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
-import { StockCreateSchema, StockUpdateSchema } from '@/lib/validation';
+import { AccessoryCreateSchema, AccessoryUpdateSchema } from '@/lib/validation';
+import type { ActionResult } from '@/actions/stock';
 
-export type ActionResult<T = null> = {
-  success: boolean;
-  error?: string;
-  errors?: Record<string, string[]>;
-  data?: T;
-};
-
-export async function getStockAction(params: {
+export async function getAccessoriesAction(params: {
   search?: string;
   sort?: string;
   page?: number;
@@ -25,12 +19,12 @@ export async function getStockAction(params: {
     const limit = Math.min(500, Math.max(1, params.limit || 50));
     const skip = (page - 1) * limit;
 
-    const where: Prisma.StockWhereInput = { deletedAt: null };
+    const where: Prisma.AccessoryWhereInput = { deletedAt: null };
     if (search) {
-      where.model = { contains: search, mode: 'insensitive' };
+      where.name = { contains: search, mode: 'insensitive' };
     }
 
-    const orderByMap: Record<string, Prisma.StockOrderByWithRelationInput> = {
+    const orderByMap: Record<string, Prisma.AccessoryOrderByWithRelationInput> = {
       newest: { createdAt: 'desc' },
       oldest: { createdAt: 'asc' },
       price_desc: { purchasePrice: 'desc' },
@@ -41,18 +35,18 @@ export async function getStockAction(params: {
     const orderBy = orderByMap[sort] || { createdAt: 'desc' };
 
     const [rawItems, totalCount] = await Promise.all([
-      prisma.stock.findMany({ where, orderBy, skip, take: limit }),
-      prisma.stock.count({ where }),
+      prisma.accessory.findMany({ where, orderBy, skip, take: limit }),
+      prisma.accessory.count({ where }),
     ]);
 
-    const allStock = await prisma.stock.findMany({
+    const allAccessories = await prisma.accessory.findMany({
       where: { deletedAt: null },
       select: { purchasePrice: true, quantity: true },
     });
 
     let totalUnits = 0;
     let costValue = 0;
-    allStock.forEach((item) => {
+    allAccessories.forEach((item) => {
       totalUnits += item.quantity;
       costValue += Number(item.purchasePrice) * item.quantity;
     });
@@ -71,17 +65,17 @@ export async function getStockAction(params: {
       summary: { totalUnits, costValue },
     };
   } catch (error: any) {
-    console.error('getStockAction error:', error);
-    return { success: false, error: 'Failed to fetch stock items', data: [] };
+    console.error('getAccessoriesAction error:', error);
+    return { success: false, error: 'Failed to fetch accessories', data: [] };
   }
 }
 
-export async function addStockAction(
+export async function addAccessoryAction(
   _prevState: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
   const raw = Object.fromEntries(formData);
-  const parsed = StockCreateSchema.safeParse(raw);
+  const parsed = AccessoryCreateSchema.safeParse(raw);
 
   if (!parsed.success) {
     return {
@@ -93,31 +87,31 @@ export async function addStockAction(
 
   const data = parsed.data;
   try {
-    await prisma.stock.create({
+    await prisma.accessory.create({
       data: {
-        model: data.model,
+        name: data.name,
         purchasePrice: data.purchasePrice,
         quantity: data.quantity,
         dateAdded: data.dateAdded ? new Date(data.dateAdded) : new Date(),
       },
     });
 
-    revalidatePath('/dashboard/stock');
+    revalidatePath('/dashboard/accessories');
     revalidatePath('/dashboard');
     return { success: true };
   } catch (err) {
-    console.error('addStockAction error:', err);
-    return { success: false, error: 'Failed to add stock item.' };
+    console.error('addAccessoryAction error:', err);
+    return { success: false, error: 'Failed to add accessory.' };
   }
 }
 
-export async function editStockAction(
+export async function editAccessoryAction(
   id: number,
   _prevState: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
   const raw = Object.fromEntries(formData);
-  const parsed = StockUpdateSchema.safeParse(raw);
+  const parsed = AccessoryUpdateSchema.safeParse(raw);
 
   if (!parsed.success) {
     return {
@@ -129,42 +123,42 @@ export async function editStockAction(
 
   const data = parsed.data;
   try {
-    const existing = await prisma.stock.findUnique({ where: { id } });
-    if (!existing) return { success: false, error: 'Stock item not found.' };
+    const existing = await prisma.accessory.findUnique({ where: { id } });
+    if (!existing) return { success: false, error: 'Accessory not found.' };
 
-    await prisma.stock.update({
+    await prisma.accessory.update({
       where: { id },
       data: {
-        ...(data.model && { model: data.model }),
+        ...(data.name && { name: data.name }),
         ...(data.purchasePrice !== undefined && { purchasePrice: data.purchasePrice }),
         ...(data.quantity !== undefined && { quantity: data.quantity }),
       },
     });
 
-    revalidatePath('/dashboard/stock');
+    revalidatePath('/dashboard/accessories');
     revalidatePath('/dashboard');
     return { success: true };
   } catch (err) {
-    console.error('editStockAction error:', err);
-    return { success: false, error: 'Failed to update stock item.' };
+    console.error('editAccessoryAction error:', err);
+    return { success: false, error: 'Failed to update accessory.' };
   }
 }
 
-export async function deleteStockAction(id: number): Promise<ActionResult> {
+export async function deleteAccessoryAction(id: number): Promise<ActionResult> {
   try {
-    const existing = await prisma.stock.findFirst({ where: { id, deletedAt: null } });
-    if (!existing) return { success: false, error: 'Stock item not found.' };
+    const existing = await prisma.accessory.findFirst({ where: { id, deletedAt: null } });
+    if (!existing) return { success: false, error: 'Accessory not found.' };
 
-    await prisma.stock.update({
+    await prisma.accessory.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
 
-    revalidatePath('/dashboard/stock');
+    revalidatePath('/dashboard/accessories');
     revalidatePath('/dashboard');
     return { success: true };
   } catch (err) {
-    console.error('deleteStockAction error:', err);
-    return { success: false, error: 'Failed to delete stock item.' };
+    console.error('deleteAccessoryAction error:', err);
+    return { success: false, error: 'Failed to delete accessory.' };
   }
 }

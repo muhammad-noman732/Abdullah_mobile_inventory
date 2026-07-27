@@ -1,12 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Save, Download, Upload, Trash2, ShieldAlert } from 'lucide-react';
+import { Save, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { updateSettingsAction, clearAllDataAction, getSettingsAction } from '@/actions/settings';
-import { seedSampleDataAction } from '@/actions/seed';
+import { updateSettingsAction, getSettingsAction } from '@/actions/settings';
 import { getStockAction } from '@/actions/stock';
 import { getSalesAction } from '@/actions/sales';
 import { getUdharAction } from '@/actions/udhar';
@@ -38,12 +37,6 @@ export default function SettingsPage() {
     receiptFooter: '',
     currencyLabel: 'Rs',
   });
-
-  // Clear data modal
-  const [showClearModal, setShowClearModal] = useState(false);
-  const [clearConfirm, setClearConfirm] = useState('');
-  const [clearing, setClearing] = useState(false);
-  const [clearError, setClearError] = useState('');
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -122,46 +115,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSeedData = async () => {
-    setSaving(true);
-    try {
-      const result = await seedSampleDataAction();
-      if (result.success) {
-        toast.success('Sample data seeded successfully!');
-      } else {
-        toast.error(result.error || 'Failed to seed sample data.');
-      }
-    } catch {
-      toast.error('An unexpected error occurred. Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleClearData = async () => {
-    if (clearConfirm !== 'DELETE ALL DATA') {
-      setClearError('Please type DELETE ALL DATA exactly as shown.');
-      return;
-    }
-    setClearing(true);
-    setClearError('');
-
-    try {
-      const result = await clearAllDataAction(clearConfirm);
-      if (result.success) {
-        toast.success('Database wiped successfully!');
-        setShowClearModal(false);
-        setClearConfirm('');
-      } else {
-        setClearError(result.error || 'Wipe failed.');
-      }
-    } catch {
-      setClearError('An unexpected error occurred. Please try again.');
-    } finally {
-      setClearing(false);
-    }
-  };
-
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
@@ -205,22 +158,8 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Backup & Tools Column */}
+        {/* Backup Only Column */}
         <div className="flex flex-col gap-6">
-          {/* Seed Box */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col gap-4">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <Upload className="w-4 h-4 text-emerald-600" /> Demo Sample Data
-            </h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Populate your store with realistic sample phones, sales transactions, credit ledgers, and expense records for quick testing.
-            </p>
-            <Button variant="outline" onClick={handleSeedData} disabled={saving} className="w-full text-xs gap-2">
-              <Upload className="w-3.5 h-3.5" /> Seed Demo Data
-            </Button>
-          </div>
-
-          {/* Backup Box */}
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col gap-4">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <Download className="w-4 h-4 text-blue-600" /> Backup Data
@@ -232,46 +171,8 @@ export default function SettingsPage() {
               <Download className="w-3.5 h-3.5" /> Download JSON Backup
             </Button>
           </div>
-
-          {/* Danger Zone */}
-          <div className="bg-rose-50 border border-rose-200 rounded-xl p-5 shadow-2xs flex flex-col gap-4">
-            <h3 className="text-sm font-bold text-rose-800 flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-rose-600" /> Danger Zone
-            </h3>
-            <p className="text-xs text-rose-600 leading-relaxed">
-              Wipe all database records (stock, sales, credit ledger, expenses). This action is irreversible.
-            </p>
-            <Button variant="danger" onClick={() => setShowClearModal(true)} className="w-full text-xs gap-2">
-              <Trash2 className="w-3.5 h-3.5" /> Clear All Data
-            </Button>
-          </div>
         </div>
       </div>
-
-      {/* Clear Data Modal */}
-      {showClearModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-sm">
-          <div className="fixed inset-0" onClick={() => setShowClearModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-6 z-10 animate-in zoom-in-95 duration-150 flex flex-col gap-4">
-            <h3 className="text-base font-bold text-slate-900">Confirm Wiping Database</h3>
-            <p className="text-xs text-slate-600">
-              Type <strong className="text-rose-600 select-all font-mono">DELETE ALL DATA</strong> below to confirm.
-            </p>
-            <Input
-              value={clearConfirm}
-              onChange={(e) => { setClearConfirm(e.target.value); setClearError(''); }}
-              placeholder="Type DELETE ALL DATA"
-              error={clearError}
-            />
-            <div className="flex gap-3 pt-2">
-              <Button variant="outline" className="flex-1" onClick={() => setShowClearModal(false)}>Cancel</Button>
-              <Button variant="danger" className="flex-1" disabled={clearing} onClick={handleClearData}>
-                {clearing ? 'Wiping...' : 'Wipe Database'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

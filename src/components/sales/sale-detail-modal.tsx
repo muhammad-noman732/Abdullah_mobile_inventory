@@ -146,8 +146,8 @@ export function SaleDetailModal({
             <p className="text-xs text-slate-500 mt-0.5">{formatDateTime(sale.createdAt)}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handlePrint} className="gap-2">
-              <Printer className="w-3.5 h-3.5" /> Print Receipt
+            <Button variant="outline" size="sm" onClick={handlePrint}>
+              <Printer className="w-3.5 h-3.5" />
             </Button>
             <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
               <X className="w-4 h-4" />

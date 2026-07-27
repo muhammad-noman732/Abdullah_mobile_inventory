@@ -1,48 +1,53 @@
 import { z } from 'zod';
 import { NextResponse } from 'next/server';
 
-// ─── Phone Number Validator ──────────────────────────────────────────────────
-
 export function isValidPhone(phone: string): boolean {
   if (!phone) return false;
   const clean = phone.replace(/[\s\-\(\)]/g, '');
-  // PK format: 03001234567 (11 digits starting with 03) or +923001234567 or 00923001234567
   const isPk = /^((\+92)|(0092)|0)?3\d{9}$/.test(clean);
-  // General international format: +[1-9] followed by 7-14 digits (or local 10-11 digit numbers)
   const isIntl = /^\+?[1-9]\d{6,14}$/.test(clean);
   return isPk || isIntl;
 }
 
 export const PhoneSchema = z.string().trim().refine(
   (val) => !val || isValidPhone(val),
-  'Invalid phone number. Please enter a valid number (e.g. 0300-1234567 or +923001234567).'
+  'Invalid phone number.'
 );
 
-// ─── Reusable Zod Schemas ────────────────────────────────────────────────────
+export const ACCESSORY_NAMES = [
+  'CoverCharger', 'Adapter', 'Cables', 'Airpods', 'Battery',
+  'Paper', 'Cooling Fan', 'Smart Watch', 'OTG', 'Connectors',
+  'Handfree', 'Lens', 'Powerbank', 'Glass', 'Card Reader',
+] as const;
+
+// ─── Stock ────────────────────────────────────────────────────────────────────
 
 export const StockCreateSchema = z.object({
-  brand: z.string().min(1, 'Brand is required').max(100).trim(),
-  model: z.string().min(1, 'Model is required').max(150).trim(),
-  variant: z.string().max(100).trim().optional().nullable(),
-  condition: z.enum(['Brand New', 'Used', 'Refurbished', 'Open Box']).default('Brand New'),
+  model: z.string().min(1, 'Model name is required').max(200).trim(),
   purchasePrice: z.coerce.number().min(0, 'Purchase price cannot be negative'),
-  sellingPrice: z.coerce.number().min(0, 'Selling price cannot be negative'),
   quantity: z.coerce.number().int().min(0, 'Quantity cannot be negative'),
-  lowStockAlert: z.coerce.number().int().min(0).default(2),
-  imei: z.string().max(50).trim().optional().nullable(),
-  notes: z.string().max(500).trim().optional().nullable(),
   dateAdded: z.string().optional().nullable(),
 });
 
 export const StockUpdateSchema = StockCreateSchema.partial();
 
-export const StockAdjustSchema = z.object({
-  adjustment: z.coerce.number().int().refine((v) => v !== 0, 'Adjustment cannot be zero'),
-  reason: z.string().min(1, 'Reason is required').max(200).trim(),
+// ─── Accessory ────────────────────────────────────────────────────────────────
+
+export const AccessoryCreateSchema = z.object({
+  name: z.string().min(1, 'Accessory name is required'),
+  purchasePrice: z.coerce.number().min(0, 'Purchase price cannot be negative'),
+  quantity: z.coerce.number().int().min(0, 'Quantity cannot be negative'),
+  dateAdded: z.string().optional().nullable(),
 });
 
+export const AccessoryUpdateSchema = AccessoryCreateSchema.partial();
+
+// ─── Sale ─────────────────────────────────────────────────────────────────────
+
 export const SaleItemSchema = z.object({
-  stockId: z.coerce.number().int().positive(),
+  stockId: z.coerce.number().int().positive().optional().nullable(),
+  accessoryId: z.coerce.number().int().positive().optional().nullable(),
+  itemType: z.enum(['mobile', 'accessory']),
   quantity: z.coerce.number().int().min(1, 'Quantity must be at least 1'),
   salePrice: z.coerce.number().min(0),
 });
@@ -58,11 +63,13 @@ export const SaleCreateSchema = z.object({
   notes: z.string().max(500).trim().optional().default(''),
 });
 
+// ─── Udhar ────────────────────────────────────────────────────────────────────
+
 export const UdharCreateSchema = z.object({
   customerName: z.string().min(1, 'Customer name is required').max(150).trim(),
   customerPhone: z.string().min(1, 'Customer phone is required').trim().refine(
     (val) => isValidPhone(val),
-    'Please enter a valid mobile number (e.g., 0300-1234567 or +923001234567).'
+    'Please enter a valid mobile number.'
   ),
   phoneSold: z.string().max(300).trim().optional().nullable(),
   totalAmount: z.coerce.number().min(0),
@@ -77,6 +84,8 @@ export const UdharPaymentSchema = z.object({
   notes: z.string().max(500).trim().optional().nullable(),
 });
 
+// ─── Expense ──────────────────────────────────────────────────────────────────
+
 export const ExpenseCreateSchema = z.object({
   description: z.string().min(1, 'Description is required').max(300).trim(),
   amount: z.coerce.number().min(0.01, 'Amount must be greater than 0'),
@@ -87,6 +96,8 @@ export const ExpenseCreateSchema = z.object({
   expenseDate: z.string().optional(),
   notes: z.string().max(500).trim().optional().nullable(),
 });
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
 
 export const SettingsUpdateSchema = z.object({
   shopName: z.string().max(150).trim().optional(),

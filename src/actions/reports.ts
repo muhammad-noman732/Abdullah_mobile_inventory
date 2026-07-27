@@ -52,7 +52,7 @@ export async function getReportsAction(
           _sum: { amount: true },
         }),
         prisma.udharPayment.aggregate({
-          where: { paymentDate: { gte: start, lte: end }, deletedAt: null },
+          where: { paymentDate: { gte: start, lte: end }, deletedAt: null, udhar: { deletedAt: null } },
           _sum: { amountPaid: true },
         }),
         // Top selling models
@@ -98,7 +98,7 @@ export async function getReportsAction(
     // Daily breakdown — group sales by date
     const dailyMap: Record<string, { revenue: number; profit: number; cost: number; transactions: number }> = {};
     for (const sale of sales) {
-      const dateKey = format(new Date(sale.saleDate), 'yyyy-MM-dd');
+      const dateKey = sale.saleDate.toISOString().slice(0, 10);
       if (!dailyMap[dateKey]) dailyMap[dateKey] = { revenue: 0, profit: 0, cost: 0, transactions: 0 };
       dailyMap[dateKey].revenue += Number(sale.totalAmount);
       dailyMap[dateKey].profit += Number(sale.totalProfit);
@@ -138,7 +138,7 @@ export async function getReportsAction(
           unitsSold: Number(item._sum.quantity || 0),
           revenue: Number(item._sum.subtotal || 0),
           profit: Number(item._sum.profit || 0),
-          cost: Number(item._sum.purchasePrice || 0) * Number(item._sum.quantity || 0),
+          cost: Number(item._sum.subtotal || 0) - Number(item._sum.profit || 0),
         })),
         expenseBreakdown: categoryExpenses.map((cat) => ({
           category: cat.category,
