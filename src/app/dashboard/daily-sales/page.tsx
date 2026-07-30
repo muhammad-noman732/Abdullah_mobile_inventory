@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ShoppingCart, DollarSign, TrendingUp, Smartphone, Package,
   Eye, Search, Trash2, Pencil
@@ -83,6 +83,7 @@ export default function DailySalesPage() {
   const [editSale, setEditSale] = useState<Sale | null>(null);
   const [deleteSaleId, setDeleteSaleId] = useState<number | null>(null);
   const [deletingSale, setDeletingSale] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'mobile' | 'accessory'>('all');
 
@@ -118,9 +119,18 @@ export default function DailySalesPage() {
   const availableStock = stockItems.filter((s) => s.quantity > 0);
   const availableAccessories = accessoryItems.filter((a) => a.quantity > 0);
 
+  const suggestions: any[] = showSuggestions && modelInput.trim()
+    ? saleType === 'mobile'
+        ? stockItems.filter(s => s.model.toLowerCase().includes(modelInput.toLowerCase())).slice(0, 10)
+        : accessoryItems.filter(a =>
+            a.name.toLowerCase().includes(modelInput.toLowerCase()) ||
+            a.modelName.toLowerCase().includes(modelInput.toLowerCase())
+          ).slice(0, 10)
+    : [];
+
   const matchedItem = saleType === 'mobile'
     ? stockItems.find((s) => s.model.toLowerCase().trim() === modelInput.toLowerCase().trim())
-    : accessoryItems.find((a) => a.name.toLowerCase().trim() === modelInput.toLowerCase().trim());
+    : accessoryItems.find((a) => a.modelName.toLowerCase().trim() === modelInput.toLowerCase().trim());
 
   const filteredSales = typeFilter === 'all'
     ? todaySales
@@ -135,7 +145,35 @@ export default function DailySalesPage() {
   const handleModelChange = (val: string) => {
     setModelInput(val);
     setModelError('');
+    if (val.trim()) {
+      const hasMatches = saleType === 'mobile'
+        ? stockItems.some(s => s.model.toLowerCase().includes(val.toLowerCase()))
+        : accessoryItems.some(a =>
+            a.name.toLowerCase().includes(val.toLowerCase()) ||
+            a.modelName.toLowerCase().includes(val.toLowerCase())
+          );
+      setShowSuggestions(hasMatches);
+    } else {
+      setShowSuggestions(false);
+    }
   };
+
+  const selectSuggestion = (label: string, isAccessory?: boolean) => {
+    setModelInput(label);
+    setShowSuggestions(false);
+    setModelError('');
+  };
+
+  const inputRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (inputRef.current && !inputRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleSubmit = async () => {
     const trimmed = modelInput.trim();
@@ -148,7 +186,7 @@ export default function DailySalesPage() {
     if (!matchedItem) {
       const suggestions = saleType === 'mobile'
         ? stockItems.map(s => s.model).slice(0, 10).join(', ')
-        : accessoryItems.map(a => a.name).slice(0, 10).join(', ');
+        : accessoryItems.map(a => `${a.name} — ${a.modelName}`).slice(0, 10).join(', ');
       const list = suggestions || (saleType === 'mobile' ? 'No phones' : 'No accessories');
       setModelError(`"${modelInput}" was not found. Check the spelling or copy the exact name from inventory. Available: ${list}`);
       return;
@@ -266,7 +304,7 @@ export default function DailySalesPage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* Model Name Input */}
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 relative" ref={inputRef}>
             <label className="text-[11px] font-bold text-neutral-500 uppercase tracking-wide">
               {saleType === 'mobile' ? 'Phone Model *' : 'Accessory Name *'}
             </label>
@@ -274,12 +312,39 @@ export default function DailySalesPage() {
               type="text"
               value={modelInput}
               onChange={(e) => handleModelChange(e.target.value)}
+              onFocus={() => modelInput.trim() && setShowSuggestions(true)}
               placeholder={saleType === 'mobile' ? 'e.g. iPhone 15 Pro Max' : 'e.g. Cover'}
               className={cn(
                 'h-10 rounded-xl border bg-white px-3 text-xs font-medium text-[#121212] placeholder:text-neutral-400 focus:outline-none',
                 modelError ? 'border-red-300 focus:border-red-500' : 'border-neutral-200 focus:border-[#121212]'
               )}
+              autoComplete="off"
             />
+            {suggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white border border-neutral-200 rounded-xl shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                {suggestions.map((item, idx) => {
+                  const isAccessory = saleType === 'accessory';
+                  const label = isAccessory
+                    ? `${(item as AccessoryItem).name} — ${(item as AccessoryItem).modelName}`
+                    : (item as StockItem).model;
+                  const qty = (item as any).quantity;
+                  const price = Number((item as any).purchasePrice);
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => selectSuggestion(isAccessory ? (item as AccessoryItem).modelName : label)}
+                      className="w-full flex items-center justify-between px-3.5 py-2.5 text-xs hover:bg-neutral-50 transition-colors text-left border-b border-neutral-100 last:border-0"
+                    >
+                      <span className="font-semibold text-[#121212]">{label}</span>
+                      <span className="text-[10px] text-neutral-400 shrink-0 ml-2">
+                        {qty} in stock · Rs {price.toLocaleString('en-PK')}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {matchedItem && (
               <p className="text-[10px] text-emerald-600 font-medium mt-0.5">
                 {matchedItem.quantity} in stock · Rs {Number((matchedItem as any).purchasePrice).toLocaleString('en-PK')} cost
