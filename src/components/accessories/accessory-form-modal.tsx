@@ -4,15 +4,14 @@ import { useState, useEffect } from 'react';
 import { Dialog } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
 import { addAccessoryAction, editAccessoryAction } from '@/actions/accessories';
-import { ACCESSORY_NAMES } from '@/lib/validation';
 import { AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AccessoryItem {
   id: number;
   name: string;
+  modelName: string;
   purchasePrice: number;
   quantity: number;
   dateAdded: string;
@@ -26,13 +25,16 @@ interface Props {
 }
 
 const EMPTY_FORM = {
-  name: 'CoverCharger',
+  name: '',
+  modelName: '',
   purchasePrice: '',
   quantity: '1',
   dateAdded: new Date().toISOString().split('T')[0],
 };
 
 type FormErrors = {
+  name?: string;
+  modelName?: string;
   purchasePrice?: string;
   quantity?: string;
   submit?: string;
@@ -50,6 +52,7 @@ export function AccessoryFormModal({ isOpen, onClose, editItem, onSuccess }: Pro
       if (editItem) {
         setForm({
           name: editItem.name,
+          modelName: editItem.modelName,
           purchasePrice: String(editItem.purchasePrice),
           quantity: String(editItem.quantity),
           dateAdded: editItem.dateAdded
@@ -66,11 +69,13 @@ export function AccessoryFormModal({ isOpen, onClose, editItem, onSuccess }: Pro
 
   const validateAll = (): boolean => {
     const e: FormErrors = {};
+    if (!form.name.trim()) e.name = 'Enter the accessory name (e.g. Cover, Charger).';
+    if (!form.modelName.trim()) e.modelName = 'Enter the model name (e.g. iPhone 15 Pro Max).';
     if (!form.purchasePrice || isNaN(parseFloat(form.purchasePrice)) || parseFloat(form.purchasePrice) < 0) e.purchasePrice = 'Enter a valid purchase price.';
     if (!form.quantity || isNaN(parseInt(form.quantity)) || parseInt(form.quantity) < 0) e.quantity = 'Enter a valid quantity.';
     setErrors(e);
-    setTouched({ purchasePrice: true, quantity: true });
-    return !e.purchasePrice && !e.quantity;
+    setTouched({ name: true, modelName: true, purchasePrice: true, quantity: true });
+    return !e.name && !e.modelName && !e.purchasePrice && !e.quantity;
   };
 
   const onFieldBlur = (field: keyof FormErrors) => {
@@ -114,11 +119,21 @@ export function AccessoryFormModal({ isOpen, onClose, editItem, onSuccess }: Pro
   return (
     <Dialog isOpen={isOpen} onClose={onClose} title={isEdit ? 'Update Accessory' : 'Add New Accessory'} maxWidth="sm">
       <div className="flex flex-col gap-4">
-        <Select
-          label="Accessory Name"
+        <Input
+          label="Accessory Name *"
+          placeholder="e.g. Cover, Charger, Glass"
           value={form.name}
           onChange={set('name')}
-          options={ACCESSORY_NAMES.map((n) => ({ label: n, value: n }))}
+          onBlur={() => onFieldBlur('name')}
+          error={touched.name ? errors.name : undefined}
+        />
+        <Input
+          label="Model Name *"
+          placeholder="e.g. iPhone 15 Pro Max"
+          value={form.modelName}
+          onChange={set('modelName')}
+          onBlur={() => onFieldBlur('modelName')}
+          error={touched.modelName ? errors.modelName : undefined}
         />
         <div className="grid grid-cols-2 gap-3">
           <Input

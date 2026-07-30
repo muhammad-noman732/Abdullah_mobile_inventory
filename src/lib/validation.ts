@@ -15,7 +15,7 @@ export const PhoneSchema = z.string().trim().refine(
 );
 
 export const ACCESSORY_NAMES = [
-  'CoverCharger', 'Adapter', 'Cables', 'Airpods', 'Battery',
+  'Cover', 'Charger', 'Adapter', 'Cables', 'Airpods', 'Battery',
   'Paper', 'Cooling Fan', 'Smart Watch', 'OTG', 'Connectors',
   'Handfree', 'Lens', 'Powerbank', 'Glass', 'Card Reader',
 ] as const;
@@ -35,6 +35,7 @@ export const StockUpdateSchema = StockCreateSchema.partial();
 
 export const AccessoryCreateSchema = z.object({
   name: z.string().min(1, 'Accessory name is required'),
+  modelName: z.string().min(1, 'Model name is required').max(200).trim(),
   purchasePrice: z.coerce.number().min(0, 'Purchase price cannot be negative'),
   quantity: z.coerce.number().int().min(0, 'Quantity cannot be negative'),
   dateAdded: z.string().optional().nullable(),

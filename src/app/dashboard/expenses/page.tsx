@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/select';
 import { addExpenseAction, deleteExpenseAction, getExpensesAction, updateExpenseAction } from '@/actions/expenses';
 import { cn, formatDate } from '@/lib/utils';
 import { SparklineCard } from '@/components/ui/sparkline-card';
+import { ListSkeleton } from '@/components/ui/skeleton';
 
 interface Expense {
   id: number;
@@ -388,9 +389,7 @@ export default function ExpensesPage() {
       {/* Expense List Card */}
       <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-24 text-slate-400 gap-2 text-xs">
-            <RefreshCw className="w-4 h-4 animate-spin text-indigo-500" /> Loading expenses...
-          </div>
+          <ListSkeleton count={6} />
         ) : expenses.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-center px-4">
             <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center">

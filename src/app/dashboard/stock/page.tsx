@@ -8,6 +8,7 @@ import { StockFormModal } from '@/components/stock/stock-form-modal';
 import { getStockAction, deleteStockAction } from '@/actions/stock';
 import { formatDate, cn } from '@/lib/utils';
 import { SparklineCard } from '@/components/ui/sparkline-card';
+import { TableSkeleton } from '@/components/ui/skeleton';
 
 interface StockItem {
   id: number;
@@ -134,7 +135,7 @@ export default function StockPage() {
       {/* Table/Cards */}
       <div className="bg-white border border-neutral-200/80 rounded-2xl overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-24 text-neutral-400 text-xs">Loading inventory...</div>
+          <TableSkeleton rows={6} cols={6} />
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-center px-4">
             <div className="w-12 h-12 rounded-2xl bg-neutral-100 flex items-center justify-center">

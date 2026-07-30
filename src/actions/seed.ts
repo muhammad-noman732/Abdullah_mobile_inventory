@@ -15,11 +15,11 @@ export async function seedSampleDataAction() {
 
     await prisma.accessory.createMany({
       data: [
-        { name: 'Cables', purchasePrice: 150, quantity: 20 },
-        { name: 'Glass', purchasePrice: 80, quantity: 15 },
-        { name: 'Powerbank', purchasePrice: 800, quantity: 8 },
-        { name: 'Airpods', purchasePrice: 1200, quantity: 5 },
-        { name: 'Adapter', purchasePrice: 300, quantity: 12 },
+        { name: 'Cables', modelName: 'USB-C Cable', purchasePrice: 150, quantity: 20 },
+        { name: 'Glass', modelName: 'Tempered Glass', purchasePrice: 80, quantity: 15 },
+        { name: 'Powerbank', modelName: '10000mAh Powerbank', purchasePrice: 800, quantity: 8 },
+        { name: 'Airpods', modelName: 'AirPods Pro', purchasePrice: 1200, quantity: 5 },
+        { name: 'Adapter', modelName: 'Fast Charger Adapter', purchasePrice: 300, quantity: 12 },
       ],
     });
 

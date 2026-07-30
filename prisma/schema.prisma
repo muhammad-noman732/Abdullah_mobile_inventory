@@ -28,6 +28,7 @@ model Stock {
 model Accessory {
   id            Int        @id @default(autoincrement())
   name          String
+  modelName     String
   purchasePrice Decimal    @db.Decimal(10, 2)
   quantity      Int        @default(0)
   dateAdded     DateTime   @default(now()) @db.Date

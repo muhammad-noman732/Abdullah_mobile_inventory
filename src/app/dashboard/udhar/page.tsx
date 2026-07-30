@@ -3,15 +3,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Wallet, Search, Plus, RefreshCw, AlertCircle, CheckCircle2,
-  Clock, Phone, User, Trash2
+  Clock, Phone, User, Trash2, Pencil
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { createUdharAction, recordUdharPaymentAction, deleteUdharAction, getUdharAction, getUdharPaymentHistoryAction } from '@/actions/udhar';
+import { createUdharAction, recordUdharPaymentAction, deleteUdharAction, updateUdharAction, getUdharAction, getUdharPaymentHistoryAction } from '@/actions/udhar';
 import { cn, formatDate } from '@/lib/utils';
 import { SparklineCard } from '@/components/ui/sparkline-card';
+import { PageLoader, CardSkeleton } from '@/components/ui/skeleton';
 import { isValidPhone } from '@/lib/validation';
 
 interface UdharPayment {
@@ -65,6 +66,10 @@ type PayFormErrors = {
   amount?: string;
 };
 
+type EditFormErrors = {
+  totalAmount?: string;
+};
+
 export default function UdharPage() {
   const [items, setItems] = useState<UdharItem[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -103,6 +108,15 @@ export default function UdharPage() {
 
   // Delete Confirm Modal
   const [deleteTarget, setDeleteTarget] = useState<UdharItem | null>(null);
+
+  // Edit Modal
+  const [editTarget, setEditTarget] = useState<UdharItem | null>(null);
+  const [editTotalAmount, setEditTotalAmount] = useState('');
+  const [editDueDate, setEditDueDate] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editErrors, setEditErrors] = useState<EditFormErrors>({});
+  const [editTouched, setEditTouched] = useState<Record<string, boolean>>({});
+  const [submittingEdit, setSubmittingEdit] = useState(false);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -308,6 +322,54 @@ export default function UdharPage() {
     }
   };
 
+  // ─── Edit ───────────────────────────────────────────────────────────────────
+  const openEdit = (item: UdharItem) => {
+    setEditTarget(item);
+    setEditTotalAmount(String(item.totalAmount));
+    setEditDueDate(item.dueDate ? item.dueDate.split('T')[0] : '');
+    setEditNotes('');
+    setEditErrors({});
+    setEditTouched({});
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTarget) return;
+
+    const num = parseFloat(editTotalAmount);
+    if (!editTotalAmount || isNaN(num) || num <= 0) {
+      setEditErrors({ totalAmount: 'Enter a valid total amount.' });
+      setEditTouched({ totalAmount: true });
+      return;
+    }
+    if (num < editTarget.totalAmount) {
+      setEditErrors({ totalAmount: `Cannot reduce from Rs ${editTarget.totalAmount}.` });
+      setEditTouched({ totalAmount: true });
+      return;
+    }
+
+    setSubmittingEdit(true);
+    try {
+      const result = await updateUdharAction(editTarget.id, {
+        totalAmount: num,
+        dueDate: editDueDate || null,
+        notes: editNotes.trim() || undefined,
+      });
+      if (result.success) {
+        toast.success('Credit entry updated!');
+        setEditTarget(null);
+        fetchUdhar();
+      } else {
+        setEditErrors({ totalAmount: result.error || 'Failed to update.' });
+        setEditTouched({ totalAmount: true });
+      }
+    } catch {
+      toast.error('An unexpected error occurred.');
+    } finally {
+      setSubmittingEdit(false);
+    }
+  };
+
   // ─── Payment History ───────────────────────────────────────────────────────
   const openHistory = async (item: UdharItem) => {
     setHistoryTarget(item);
@@ -436,11 +498,9 @@ export default function UdharPage() {
       </div>
 
       {/* Udhar Cards Grid */}
-      {loading ? (
-        <div className="bg-white rounded-2xl border border-slate-200/80 flex items-center justify-center py-24 text-slate-400 gap-2 text-xs">
-          <RefreshCw className="w-4 h-4 animate-spin text-indigo-500" /> Loading credit ledger...
-        </div>
-      ) : items.length === 0 ? (
+{loading ? (
+          <CardSkeleton count={6} />
+        ) : items.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200/80 flex flex-col items-center justify-center py-20 gap-3 text-center px-4 shadow-xs">
           <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center">
             <Wallet className="w-6 h-6 text-slate-400" />
@@ -541,6 +601,15 @@ export default function UdharPage() {
                   <div className="flex items-center gap-1.5 shrink-0">
                     <Button
                       size="sm"
+                      variant="ghost"
+                      onClick={() => openEdit(item)}
+                      className="h-9 px-2.5 rounded-xl text-slate-400 hover:text-amber-600 hover:bg-amber-50 gap-1 text-xs font-semibold whitespace-nowrap"
+                      title="Edit credit amount"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
                       variant="outline"
                       onClick={() => openHistory(item)}
                       className="h-9 px-3 text-xs rounded-xl border-slate-200 font-bold whitespace-nowrap"
@@ -634,7 +703,14 @@ export default function UdharPage() {
               <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
                 {paymentHistory.map((p) => (
                   <div key={p.id} className="py-2.5 flex items-center justify-between text-xs">
-                    <div>
+<Input
+              label="Promised Due Date"
+              type="date"
+              value={editDueDate}
+              onChange={(e) => setEditDueDate(e.target.value)}
+            />
+
+            <div>
                       <p className="font-bold text-emerald-700">+{fmt(p.amountPaid)} ({p.paymentMethod})</p>
                       {p.notes && <p className="text-[11px] text-slate-400 mt-0.5">{p.notes}</p>}
                     </div>
@@ -668,6 +744,66 @@ export default function UdharPage() {
               </Button>
             </div>
           </div>
+        </Dialog>
+      )}
+
+      {/* Edit Credit Modal */}
+      {editTarget && (
+        <Dialog isOpen={!!editTarget} onClose={() => setEditTarget(null)} title={`Edit Credit — ${editTarget.customerName}`}>
+          <form onSubmit={handleEditSubmit} className="flex flex-col gap-4" noValidate>
+            <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1">
+              <div className="flex justify-between font-semibold text-slate-600">
+                <span>Current Total:</span> <span>Rs {Math.round(editTarget.totalAmount).toLocaleString('en-PK')}</span>
+              </div>
+              <div className="flex justify-between font-semibold text-slate-600">
+                <span>Paid So Far:</span> <span>{fmt(editTarget.paidAmount)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-amber-600">
+                <span>Remaining:</span> <span>{fmt(editTarget.remaining)}</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">New Total Amount (Rs) *</label>
+              <Input
+                type="number"
+                placeholder={`Current: ${editTarget.totalAmount}`}
+                value={editTotalAmount}
+                onChange={(e) => { setEditTotalAmount(e.target.value); if (editErrors.totalAmount) setEditErrors({}); }}
+                onBlur={() => setEditTouched((p) => ({ ...p, totalAmount: true }))}
+                error={editTouched.totalAmount ? editErrors.totalAmount : undefined}
+                required
+              />
+              <span className="text-[10px] font-semibold text-slate-400 mt-1 block">
+                Enter the new total (includes additional credit)
+              </span>
+            </div>
+
+            <Input
+              label="Promised Due Date"
+              type="date"
+              value={editDueDate}
+              onChange={(e) => setEditDueDate(e.target.value)}
+            />
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Notes (Optional)</label>
+              <Input
+                placeholder="e.g. Additional purchase of Rs 500"
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 mt-2">
+              <Button type="button" variant="outline" onClick={() => setEditTarget(null)} className="rounded-xl text-xs h-9">
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submittingEdit} className="rounded-xl text-xs h-9 bg-amber-600 hover:bg-amber-700 text-white font-bold">
+                {submittingEdit ? 'Updating...' : 'Update Credit'}
+              </Button>
+            </div>
+          </form>
         </Dialog>
       )}
 

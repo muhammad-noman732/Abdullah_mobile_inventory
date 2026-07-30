@@ -7,6 +7,7 @@ import {
   DollarSign, TrendingUp, Package, CreditCard
 } from 'lucide-react';
 import { SparklineCard } from '@/components/ui/sparkline-card';
+import { PageLoader, KPISkeleton, ListSkeleton } from '@/components/ui/skeleton';
 import { SaleDetailModal } from '@/components/sales/sale-detail-modal';
 import { getDashboardMetricsAction } from '@/actions/dashboard';
 import { cn, formatDate } from '@/lib/utils';
@@ -85,13 +86,7 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchMetrics(); }, [fetchMetrics]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh] text-slate-400 gap-2 text-sm">
-        <RefreshCw className="w-4 h-4 animate-spin text-slate-600" /> Loading Dashboard...
-      </div>
-    );
-  }
+  if (loading) return <PageLoader />;
 
   if (!metrics) return null;
 

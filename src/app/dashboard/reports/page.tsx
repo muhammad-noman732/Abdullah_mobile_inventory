@@ -8,6 +8,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { getReportsAction } from '@/actions/reports';
 import { cn } from '@/lib/utils';
+import { PageLoader } from '@/components/ui/skeleton';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, PieChart, Pie, Cell
@@ -155,11 +156,9 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {loading ? (
-        <div className="bg-white rounded-2xl border border-slate-200/80 flex items-center justify-center py-32 text-slate-400 gap-2 text-sm shadow-xs">
-          <RefreshCw className="w-4 h-4 animate-spin" /> Generating analytics...
-        </div>
-      ) : data ? (
+{loading ? (
+          <PageLoader />
+        ) : data ? (
         <>
           {/* ─── Financial Summary ───────────────────────────────────── */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">

@@ -12,6 +12,7 @@ import { SaleDetailModal } from '@/components/sales/sale-detail-modal';
 import { getSalesAction, deleteSaleAction } from '@/actions/sales';
 import { cn, formatDateTime } from '@/lib/utils';
 import { SparklineCard } from '@/components/ui/sparkline-card';
+import { TableSkeleton } from '@/components/ui/skeleton';
 
 interface SaleItem {
   id: number;
@@ -256,25 +257,7 @@ export default function SalesPage() {
 
       <div className="bg-white border border-neutral-200/80 rounded-2xl overflow-hidden">
         {loading ? (
-          <>
-            <div className="hidden md:block">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-neutral-50/60 border-b border-neutral-100">
-                    {['Customer', 'Items', 'Payment', 'Total', 'Profit', 'Date', 'Actions'].map((h) => (
-                      <th key={h} className="px-5 py-3 text-left font-bold text-neutral-400 uppercase tracking-wider text-[10px]">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-100/80">
-                  {Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)}
-                </tbody>
-              </table>
-            </div>
-            <div className="md:hidden divide-y divide-neutral-100">
-              {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
-            </div>
-          </>
+          <TableSkeleton rows={5} cols={7} />
         ) : sales.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-center px-4">
             <div className="w-12 h-12 rounded-2xl bg-neutral-100 flex items-center justify-center">

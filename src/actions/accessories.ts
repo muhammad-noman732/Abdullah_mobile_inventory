@@ -20,7 +20,10 @@ export async function getAccessoriesAction(params: {
 
     const where: any = { deletedAt: null };
     if (search) {
-      where.name = { contains: search, mode: 'insensitive' };
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { modelName: { contains: search, mode: 'insensitive' } },
+      ];
     }
 
     const orderByMap: Record<string, any> = {
@@ -86,14 +89,26 @@ export async function addAccessoryAction(
 
   const data = parsed.data;
   try {
-    await prisma.accessory.create({
-      data: {
-        name: data.name,
-        purchasePrice: data.purchasePrice,
-        quantity: data.quantity,
-        dateAdded: data.dateAdded ? new Date(data.dateAdded) : new Date(),
-      },
+    const existing = await prisma.accessory.findFirst({
+      where: { name: data.name, modelName: data.modelName, deletedAt: null },
     });
+
+    if (existing) {
+      await prisma.accessory.update({
+        where: { id: existing.id },
+        data: { quantity: existing.quantity + data.quantity },
+      });
+    } else {
+      await prisma.accessory.create({
+        data: {
+          name: data.name,
+          modelName: data.modelName,
+          purchasePrice: data.purchasePrice,
+          quantity: data.quantity,
+          dateAdded: data.dateAdded ? new Date(data.dateAdded) : new Date(),
+        },
+      });
+    }
 
     revalidatePath('/dashboard/accessories');
     revalidatePath('/dashboard');
@@ -129,6 +144,7 @@ export async function editAccessoryAction(
       where: { id },
       data: {
         ...(data.name && { name: data.name }),
+        ...(data.modelName !== undefined && { modelName: data.modelName }),
         ...(data.purchasePrice !== undefined && { purchasePrice: data.purchasePrice }),
         ...(data.quantity !== undefined && { quantity: data.quantity }),
       },

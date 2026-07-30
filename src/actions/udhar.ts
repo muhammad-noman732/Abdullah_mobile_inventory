@@ -177,6 +177,50 @@ export async function createUdharAction(payload: unknown): Promise<ActionResult>
   }
 }
 
+// ── MUTATION: Update an existing Udhar entry (add more credit) ────────────────
+export async function updateUdharAction(
+  id: number,
+  payload: { totalAmount: number; dueDate?: string | null; notes?: string }
+): Promise<ActionResult> {
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.udhar.findUnique({ where: { id } });
+      if (!existing) throw new Error('Udhar record not found.');
+      if (existing.deletedAt) throw new Error('This credit record has been deleted.');
+      if (payload.totalAmount < Number(existing.totalAmount))
+        throw new Error(`New total (Rs ${payload.totalAmount}) cannot be less than current total (Rs ${existing.totalAmount}).`);
+
+      const additionalCredit = Math.max(0, payload.totalAmount - Number(existing.totalAmount));
+      const newRemaining = Number(existing.remaining) + additionalCredit;
+      const newStatus = newRemaining === 0 ? 'Paid' : Number(existing.paidAmount) > 0 ? 'Partial' : 'Unpaid';
+
+      const today = new Date().toISOString().split('T')[0];
+      const dateNote = additionalCredit > 0
+        ? `[${today}] Added credit: Rs ${additionalCredit}. ${payload.notes || ''}`
+        : payload.notes || undefined;
+      const mergedNotes = [existing.notes, dateNote].filter(Boolean).join(' | ');
+
+      await tx.udhar.update({
+        where: { id },
+        data: {
+          totalAmount: payload.totalAmount,
+          remaining: newRemaining,
+          status: newStatus,
+          notes: mergedNotes || null,
+          ...(payload.dueDate !== undefined && { dueDate: payload.dueDate ? new Date(payload.dueDate) : null }),
+        },
+      });
+    }, { timeout: 30000 });
+
+    revalidatePath('/dashboard/udhar');
+    revalidatePath('/dashboard');
+    return { success: true };
+  } catch (err: any) {
+    console.error('updateUdharAction error:', err);
+    return { success: false, error: err.message || 'Failed to update credit entry.' };
+  }
+}
+
 // ── MUTATION: Record an installment payment (with concurrency-safe transaction) ──
 export async function recordUdharPaymentAction(
   udharId: number,
@@ -220,7 +264,7 @@ export async function recordUdharPaymentAction(
         where: { id: udharId },
         data: { paidAmount: newPaid, remaining: newRemaining, status: newStatus },
       });
-    });
+    }, { timeout: 30000 });
 
     revalidatePath('/dashboard/udhar');
     revalidatePath('/dashboard');

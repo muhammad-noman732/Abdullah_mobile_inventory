@@ -8,10 +8,12 @@ import { AccessoryFormModal } from '@/components/accessories/accessory-form-moda
 import { getAccessoriesAction, deleteAccessoryAction } from '@/actions/accessories';
 import { formatDate, cn } from '@/lib/utils';
 import { SparklineCard } from '@/components/ui/sparkline-card';
+import { TableSkeleton } from '@/components/ui/skeleton';
 
 interface AccessoryItem {
   id: number;
   name: string;
+  modelName: string;
   purchasePrice: number;
   quantity: number;
   dateAdded: string;
@@ -146,7 +148,7 @@ export default function AccessoriesPage() {
       {/* List */}
       <div className="bg-white border border-violet-200/60 rounded-2xl overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-24 text-violet-400 text-xs">Loading accessories...</div>
+          <TableSkeleton rows={6} cols={5} />
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-center px-4">
             <div className="w-12 h-12 rounded-2xl bg-violet-50 border border-violet-100 flex items-center justify-center">
@@ -182,7 +184,10 @@ export default function AccessoriesPage() {
                           <div className="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center text-violet-700 text-[10px] font-bold shrink-0">
                             <Package className="w-3.5 h-3.5" />
                           </div>
-                          <span className="font-bold text-[#121212] text-xs">{item.name}</span>
+                          <div>
+                            <span className="font-bold text-[#121212] text-xs">{item.name}</span>
+                            <span className="block text-[10px] text-violet-500 font-medium mt-0.5">{item.modelName}</span>
+                          </div>
                         </div>
                       </td>
                       <td className="px-5 py-3.5 text-right font-semibold text-violet-700 text-xs">{fmt(item.purchasePrice)}</td>
@@ -227,6 +232,7 @@ export default function AccessoriesPage() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-bold text-[#121212]">{item.name}</p>
+                        <p className="text-[11px] text-violet-500 font-medium mt-0.5">{item.modelName}</p>
                         <p className="text-xs text-violet-600 font-semibold mt-0.5">{fmt(item.purchasePrice)}</p>
                       </div>
                     </div>

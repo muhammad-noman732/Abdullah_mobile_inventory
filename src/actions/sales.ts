@@ -313,7 +313,7 @@ export async function createSaleAction(payload: unknown): Promise<ActionResult<{
       });
 
       return sale;
-    });
+    }, { timeout: 30000 });
 
     revalidatePath('/dashboard/daily-sales');
     revalidatePath('/dashboard/sales');
@@ -325,6 +325,45 @@ export async function createSaleAction(payload: unknown): Promise<ActionResult<{
   } catch (err: any) {
     console.error('createSaleAction error:', err);
     return { success: false, error: err.message || 'Failed to record sale.' };
+  }
+}
+
+export async function updateSaleItemsAction(
+  saleId: number,
+  items: { id: number; salePrice: number }[]
+): Promise<ActionResult> {
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (const item of items) {
+        if (item.salePrice < 0) throw new Error(`Invalid price for item #${item.id}.`);
+        const existing = await tx.saleItem.findUnique({ where: { id: item.id } });
+        if (!existing) throw new Error(`Sale item #${item.id} not found.`);
+        const newSubtotal = item.salePrice * existing.quantity;
+        const newProfit = (item.salePrice - Number(existing.purchasePrice)) * existing.quantity;
+        await tx.saleItem.update({
+          where: { id: item.id },
+          data: { salePrice: item.salePrice, subtotal: newSubtotal, profit: newProfit },
+        });
+      }
+
+      const updatedItems = await tx.saleItem.findMany({ where: { saleId } });
+      const totalAmount = updatedItems.reduce((sum, i) => sum + Number(i.subtotal), 0);
+      const totalCost = updatedItems.reduce((sum, i) => sum + Number(i.purchasePrice) * i.quantity, 0);
+      const totalProfit = totalAmount - totalCost;
+
+      await tx.sale.update({
+        where: { id: saleId },
+        data: { totalAmount, totalCost, totalProfit },
+      });
+    }, { timeout: 30000 });
+
+    revalidatePath('/dashboard/daily-sales');
+    revalidatePath('/dashboard/sales');
+    revalidatePath('/dashboard');
+    return { success: true };
+  } catch (err: any) {
+    console.error('updateSaleItemsAction error:', err);
+    return { success: false, error: err.message || 'Failed to update sale.' };
   }
 }
 
@@ -356,7 +395,7 @@ export async function deleteSaleAction(id: number): Promise<ActionResult> {
         where: { id },
         data: { deletedAt: new Date() },
       });
-    });
+    }, { timeout: 30000 });
 
     revalidatePath('/dashboard/sales');
     revalidatePath('/dashboard/daily-sales');

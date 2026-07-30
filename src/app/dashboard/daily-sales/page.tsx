@@ -3,15 +3,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   ShoppingCart, DollarSign, TrendingUp, Smartphone, Package,
-  Eye, Search
+  Eye, Search, Trash2, Pencil
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { createSaleAction, getSalesAction } from '@/actions/sales';
+import { createSaleAction, deleteSaleAction, getSalesAction } from '@/actions/sales';
 import { getStockAction } from '@/actions/stock';
 import { getAccessoriesAction } from '@/actions/accessories';
 import { SaleDetailModal } from '@/components/sales/sale-detail-modal';
+import { EditSaleModal } from '@/components/sales/edit-sale-modal';
 import { SparklineCard } from '@/components/ui/sparkline-card';
+import { ListSkeleton } from '@/components/ui/skeleton';
 import { formatDateTime, cn } from '@/lib/utils';
 
 interface StockItem {
@@ -24,6 +26,7 @@ interface StockItem {
 interface AccessoryItem {
   id: number;
   name: string;
+  modelName: string;
   purchasePrice: number;
   quantity: number;
 }
@@ -64,9 +67,9 @@ export default function DailySalesPage() {
   const [saleType, setSaleType] = useState<SaleType>('mobile');
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [accessoryItems, setAccessoryItems] = useState<AccessoryItem[]>([]);
-  const [selectedStockId, setSelectedStockId] = useState<number | ''>('');
-  const [selectedAccessoryId, setSelectedAccessoryId] = useState<number | ''>('');
-  const [quantity, setQuantity] = useState(1);
+  const [modelInput, setModelInput] = useState('');
+  const [modelError, setModelError] = useState('');
+  const [quantityStr, setQuantityStr] = useState('1');
   const [salePrice, setSalePrice] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Cash');
@@ -77,6 +80,9 @@ export default function DailySalesPage() {
   const [loadingSales, setLoadingSales] = useState(true);
 
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+  const [editSale, setEditSale] = useState<Sale | null>(null);
+  const [deleteSaleId, setDeleteSaleId] = useState<number | null>(null);
+  const [deletingSale, setDeletingSale] = useState(false);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'mobile' | 'accessory'>('all');
 
@@ -112,46 +118,58 @@ export default function DailySalesPage() {
   const availableStock = stockItems.filter((s) => s.quantity > 0);
   const availableAccessories = accessoryItems.filter((a) => a.quantity > 0);
 
-  const selectedItem = saleType === 'mobile'
-    ? stockItems.find((s) => s.id === selectedStockId)
-    : accessoryItems.find((a) => a.id === selectedAccessoryId);
-
-  const defaultPrice = saleType === 'mobile'
-    ? (selectedItem as any)?.sellingPrice || 0
-    : 0;
+  const matchedItem = saleType === 'mobile'
+    ? stockItems.find((s) => s.model.toLowerCase().trim() === modelInput.toLowerCase().trim())
+    : accessoryItems.find((a) => a.name.toLowerCase().trim() === modelInput.toLowerCase().trim());
 
   const filteredSales = typeFilter === 'all'
     ? todaySales
     : todaySales.filter(sale => sale.items.some(item => item.itemType === typeFilter));
 
   const handleSalePriceFocus = () => {
-    if (!salePrice && defaultPrice > 0) {
-      setSalePrice(String(defaultPrice));
+    if (!salePrice && matchedItem) {
+      setSalePrice(String((matchedItem as any)?.purchasePrice || 0));
     }
   };
 
+  const handleModelChange = (val: string) => {
+    setModelInput(val);
+    setModelError('');
+  };
+
   const handleSubmit = async () => {
-    if (saleType === 'mobile' && !selectedStockId) { toast.error('Please select a phone.'); return; }
-    if (saleType === 'accessory' && !selectedAccessoryId) { toast.error('Please select an accessory.'); return; }
-    if (!salePrice || parseFloat(salePrice) <= 0) { toast.error('Please enter a sale price.'); return; }
-    if (quantity < 1) { toast.error('Quantity must be at least 1.'); return; }
-    if (saleType === 'mobile') {
-      const maxQty = stockItems.find(s => s.id === selectedStockId)?.quantity || 0;
-      if (quantity > maxQty) { toast.error(`Only ${maxQty} unit${maxQty !== 1 ? 's' : ''} available.`); return; }
+    const trimmed = modelInput.trim();
+    if (!trimmed) { setModelError('Enter the exact model name from inventory.'); return; }
+    if (trimmed !== modelInput) {
+      setModelError('Extra spaces detected — copy the exact name without spaces.');
+      return;
     }
-    if (saleType === 'accessory') {
-      const acc = accessoryItems.find((a) => a.id === selectedAccessoryId);
-      if (acc && quantity > acc.quantity) { toast.error(`Only ${acc.quantity} available in stock.`); return; }
+
+    if (!matchedItem) {
+      const suggestions = saleType === 'mobile'
+        ? stockItems.map(s => s.model).slice(0, 10).join(', ')
+        : accessoryItems.map(a => a.name).slice(0, 10).join(', ');
+      const list = suggestions || (saleType === 'mobile' ? 'No phones' : 'No accessories');
+      setModelError(`"${modelInput}" was not found. Check the spelling or copy the exact name from inventory. Available: ${list}`);
+      return;
+    }
+
+    if (!salePrice || parseFloat(salePrice) <= 0) { toast.error('Please enter a sale price.'); return; }
+    const qty = parseInt(quantityStr) || 0;
+    if (qty < 1) { toast.error('Quantity must be at least 1.'); return; }
+    if (qty > (matchedItem as any).quantity) {
+      toast.error(`Only ${(matchedItem as any).quantity} unit${(matchedItem as any).quantity !== 1 ? 's' : ''} available.`);
+      return;
     }
 
     setSaving(true);
     try {
       const payload = {
         items: [{
-          stockId: saleType === 'mobile' ? selectedStockId : null,
-          accessoryId: saleType === 'accessory' ? selectedAccessoryId : null,
+          stockId: saleType === 'mobile' ? matchedItem.id : null,
+          accessoryId: saleType === 'accessory' ? matchedItem.id : null,
           itemType: saleType,
-          quantity,
+          quantity: qty,
           salePrice: parseFloat(salePrice),
         }],
         customerName: customerName.trim() || 'Walk-in',
@@ -166,9 +184,9 @@ export default function DailySalesPage() {
 
       if (result.success) {
         toast.success('Sale recorded!');
-        setSelectedStockId('');
-        setSelectedAccessoryId('');
-        setQuantity(1);
+        setModelInput('');
+        setModelError('');
+        setQuantityStr('1');
         setSalePrice('');
         setCustomerName('');
         setPaymentMethod('Cash');
@@ -182,6 +200,27 @@ export default function DailySalesPage() {
       toast.error(err.message || 'An unexpected error occurred.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteSale = async () => {
+    if (!deleteSaleId) return;
+    setDeletingSale(true);
+    try {
+      const res = await deleteSaleAction(deleteSaleId);
+      if (res.success) {
+        toast.success('Sale deleted. Stock restored.');
+        setDeleteSaleId(null);
+        fetchTodaySales();
+        fetchStockItems();
+        fetchAccessoryItems();
+      } else {
+        toast.error(res.error || 'Failed to delete sale.');
+      }
+    } catch {
+      toast.error('An unexpected error occurred.');
+    } finally {
+      setDeletingSale(false);
     }
   };
 
@@ -206,7 +245,7 @@ export default function DailySalesPage() {
         {/* Type Toggle */}
         <div className="flex gap-2 mb-4">
           <button
-            onClick={() => { setSaleType('mobile'); setSelectedAccessoryId(''); setSalePrice(''); }}
+            onClick={() => { setSaleType('mobile'); setModelInput(''); setModelError(''); setSalePrice(''); }}
             className={cn(
               'flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all',
               saleType === 'mobile' ? 'bg-[#121212] text-white shadow-xs' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'
@@ -215,7 +254,7 @@ export default function DailySalesPage() {
             <Smartphone className="w-4 h-4" /> Mobile
           </button>
           <button
-            onClick={() => { setSaleType('accessory'); setSelectedStockId(''); setSalePrice(''); }}
+            onClick={() => { setSaleType('accessory'); setModelInput(''); setModelError(''); setSalePrice(''); }}
             className={cn(
               'flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all',
               saleType === 'accessory' ? 'bg-[#121212] text-white shadow-xs' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'
@@ -226,58 +265,42 @@ export default function DailySalesPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Item Select */}
-          {saleType === 'mobile' ? (
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-bold text-neutral-500 uppercase tracking-wide">Select Phone *</label>
-              <select
-                value={selectedStockId}
-                onChange={(e) => { setSelectedStockId(Number(e.target.value)); setSalePrice(''); }}
-                className="h-10 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-medium text-[#121212] focus:border-[#121212] focus:outline-none"
-              >
-                <option value="">Choose a phone...</option>
-                {availableStock.map((s) => (
-                  <option key={s.id} value={s.id}>{s.model} — {s.quantity} in stock</option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-bold text-neutral-500 uppercase tracking-wide">Select Accessory *</label>
-              <select
-                value={selectedAccessoryId}
-                onChange={(e) => { setSelectedAccessoryId(Number(e.target.value)); setSalePrice(''); }}
-                className="h-10 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-medium text-[#121212] focus:border-[#121212] focus:outline-none"
-              >
-                <option value="">Choose an accessory...</option>
-                {availableAccessories.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name} — {a.quantity} in stock</option>
-                ))}
-              </select>
-            </div>
-          )}
+          {/* Model Name Input */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-bold text-neutral-500 uppercase tracking-wide">
+              {saleType === 'mobile' ? 'Phone Model *' : 'Accessory Name *'}
+            </label>
+            <input
+              type="text"
+              value={modelInput}
+              onChange={(e) => handleModelChange(e.target.value)}
+              placeholder={saleType === 'mobile' ? 'e.g. iPhone 15 Pro Max' : 'e.g. Cover'}
+              className={cn(
+                'h-10 rounded-xl border bg-white px-3 text-xs font-medium text-[#121212] placeholder:text-neutral-400 focus:outline-none',
+                modelError ? 'border-red-300 focus:border-red-500' : 'border-neutral-200 focus:border-[#121212]'
+              )}
+            />
+            {matchedItem && (
+              <p className="text-[10px] text-emerald-600 font-medium mt-0.5">
+                {matchedItem.quantity} in stock · Rs {Number((matchedItem as any).purchasePrice).toLocaleString('en-PK')} cost
+              </p>
+            )}
+            {modelError && (
+              <p className="text-[10px] text-red-600 font-medium mt-0.5">{modelError}</p>
+            )}
+          </div>
 
           {/* Quantity */}
           <div className="flex flex-col gap-1">
             <label className="text-[11px] font-bold text-neutral-500 uppercase tracking-wide">
-              Quantity {selectedStockId && saleType === 'mobile' ? `(max ${stockItems.find(s => s.id === selectedStockId)?.quantity || 0})` : ''}
-              {selectedAccessoryId && saleType === 'accessory' ? `(max ${accessoryItems.find(a => a.id === selectedAccessoryId)?.quantity || 0})` : ''}
+              Quantity {matchedItem ? `(max ${(matchedItem as any).quantity})` : ''}
             </label>
             <input
               type="number"
               min={1}
-              max={saleType === 'mobile'
-                ? (stockItems.find(s => s.id === selectedStockId)?.quantity || 1)
-                : (accessoryItems.find(a => a.id === selectedAccessoryId)?.quantity || 1)
-              }
-              value={quantity}
-              onChange={(e) => {
-                const maxQty = saleType === 'mobile'
-                  ? (stockItems.find(s => s.id === selectedStockId)?.quantity || 999)
-                  : (accessoryItems.find(a => a.id === selectedAccessoryId)?.quantity || 999);
-                const val = Math.max(1, Math.min(maxQty, parseInt(e.target.value) || 1));
-                setQuantity(val);
-              }}
+              max={matchedItem ? (matchedItem as any).quantity : 999}
+              value={quantityStr}
+              onChange={(e) => setQuantityStr(e.target.value)}
               className="h-10 rounded-xl border border-neutral-200 bg-white px-3 text-sm font-bold text-[#121212] focus:border-[#121212] focus:outline-none"
             />
           </div>
@@ -327,18 +350,18 @@ export default function DailySalesPage() {
               disabled={saving}
               className="w-full h-10 rounded-xl bg-[#121212] hover:bg-neutral-800 text-white font-bold text-xs gap-2"
             >
-              {saving ? 'Recording...' : `Record Sale ${salePrice ? `· Rs ${(parseFloat(salePrice) * quantity).toLocaleString('en-PK')}` : ''}`}
+              {saving ? 'Recording...' : `Record Sale ${salePrice ? `· Rs ${(parseFloat(salePrice) * (parseInt(quantityStr) || 1)).toLocaleString('en-PK')}` : ''}`}
             </Button>
           </div>
         </div>
 
         {/* Quick info */}
-        {selectedItem && saleType === 'mobile' && (
+        {matchedItem && saleType === 'mobile' && (
           <div className="mt-3 bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs">
-            <span className="text-neutral-500 font-medium">Cost: <span className="font-bold text-neutral-700">{fmt((selectedItem as StockItem).purchasePrice)}</span></span>
+            <span className="text-neutral-500 font-medium">Cost: <span className="font-bold text-neutral-700">{fmt((matchedItem as StockItem).purchasePrice)}</span></span>
             {salePrice && parseFloat(salePrice) > 0 && (
               <span className="font-bold text-emerald-700">
-                Profit: {fmt((parseFloat(salePrice) - (selectedItem as StockItem).purchasePrice) * quantity)}
+                Profit: {fmt((parseFloat(salePrice) - (matchedItem as StockItem).purchasePrice) * (parseInt(quantityStr) || 1))}
               </span>
             )}
           </div>
@@ -347,8 +370,8 @@ export default function DailySalesPage() {
 
       {/* Today's Sales List */}
       <div className="bg-white border border-neutral-200/80 rounded-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-neutral-100 flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-4">
+        <div className="px-5 py-4 border-b border-neutral-100 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex items-center justify-between sm:justify-start gap-4 flex-1">
             <div>
               <h3 className="text-sm font-bold text-[#121212]">Today&apos;s Sales</h3>
               <p className="text-[11px] text-neutral-400 font-medium mt-0.5">
@@ -380,20 +403,20 @@ export default function DailySalesPage() {
               >Accessory</button>
             </div>
           </div>
-          <div className="relative w-48 shrink-0">
+          <div className="relative w-full sm:w-56">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter today..."
-              className="w-full h-8 pl-8 pr-3 rounded-xl border border-neutral-200 bg-neutral-50 text-xs font-medium text-[#121212] placeholder:text-neutral-400 focus:border-[#121212] focus:outline-none"
+              placeholder="Search customer or item..."
+              className="w-full h-9 pl-9 pr-3 rounded-xl border border-neutral-200 bg-neutral-50 text-xs font-medium text-[#121212] placeholder:text-neutral-400 focus:border-[#121212] focus:outline-none"
             />
           </div>
         </div>
 
         {loadingSales ? (
-          <div className="flex items-center justify-center py-16 text-neutral-400 text-xs">Loading today&apos;s sales...</div>
+          <ListSkeleton count={6} />
         ) : todaySales.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center px-4">
             <div className="w-12 h-12 rounded-2xl bg-neutral-100 flex items-center justify-center">
@@ -413,32 +436,50 @@ export default function DailySalesPage() {
         ) : (
           <div className="divide-y divide-neutral-100">
             {filteredSales.map((sale) => (
-              <div key={sale.id} className="p-4 hover:bg-neutral-50/50 transition-colors">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-xs font-bold text-[#121212]">{sale.customerName}</p>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-neutral-100 text-neutral-600">{sale.paymentMethod}</span>
-                      <span className="text-[10px] text-neutral-400">{formatDateTime(sale.saleDate)}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {sale.items.map((item) => (
-                        <span key={item.id} className={cn(
-                          'inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium border',
-                          item.itemType === 'mobile' ? 'bg-blue-50 border-blue-200/60 text-blue-700' : 'bg-purple-50 border-purple-200/60 text-purple-700'
-                        )}>
-                          {item.itemType === 'mobile' ? <Smartphone className="w-3 h-3" /> : <Package className="w-3 h-3" />}
-                          {item.quantity > 1 && <span className="font-bold">{item.quantity}x</span>}
-                          {item.model}
-                        </span>
-                      ))}
-                    </div>
+              <div key={sale.id} className="flex items-center gap-3 p-4 hover:bg-neutral-50/50 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-xs font-bold text-[#121212]">{sale.customerName}</p>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-neutral-100 text-neutral-600">{sale.paymentMethod}</span>
+                    <span className="text-[10px] text-neutral-400">{formatDateTime(sale.saleDate)}</span>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-black text-[#121212]">{fmt(sale.totalAmount)}</p>
-                    <p className="text-[11px] font-bold text-emerald-600">+{fmt(sale.totalProfit)}</p>
-                    <button onClick={() => setSelectedSale(sale as any)} className="mt-1 text-[10px] text-neutral-400 hover:text-[#121212] flex items-center gap-1 ml-auto">
-                      <Eye className="w-3 h-3" /> View
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {sale.items.map((item) => (
+                      <span key={item.id} className={cn(
+                        'inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium border',
+                        item.itemType === 'mobile' ? 'bg-blue-50 border-blue-200/60 text-blue-700' : 'bg-purple-50 border-purple-200/60 text-purple-700'
+                      )}>
+                        {item.itemType === 'mobile' ? <Smartphone className="w-3 h-3" /> : <Package className="w-3 h-3" />}
+                        {item.quantity > 1 && <span className="font-bold">{item.quantity}x</span>}
+                        {item.model}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-sm font-black text-[#121212]">{fmt(sale.totalAmount)}</p>
+                  <p className="text-[11px] font-bold text-emerald-600">+{fmt(sale.totalProfit)}</p>
+                  <div className="flex items-center justify-end gap-1.5 mt-1.5">
+                    <button
+                      onClick={() => setSelectedSale(sale as any)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors"
+                      title="View details"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> View
+                    </button>
+                    <button
+                      onClick={() => setEditSale(sale as any)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 transition-colors"
+                      title="Edit prices"
+                    >
+                      <Pencil className="w-3.5 h-3.5" /> Edit
+                    </button>
+                    <button
+                      onClick={() => setDeleteSaleId(sale.id)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 transition-colors"
+                      title="Delete sale"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
                     </button>
                   </div>
                 </div>
@@ -453,6 +494,35 @@ export default function DailySalesPage() {
           sale={selectedSale as any}
           onClose={() => setSelectedSale(null)}
         />
+      )}
+
+      {editSale && (
+        <EditSaleModal
+          sale={editSale as any}
+          onClose={() => setEditSale(null)}
+          onSuccess={() => {
+            fetchTodaySales();
+            fetchAccessoryItems();
+          }}
+        />
+      )}
+
+      {deleteSaleId && (
+        <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-neutral-200 flex flex-col gap-4">
+            <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <h3 className="text-base font-bold text-[#121212]">Delete this sale?</h3>
+            <p className="text-xs text-neutral-500 font-medium">Stock items will be returned to inventory. This action cannot be undone.</p>
+            <div className="flex justify-end gap-2 mt-2">
+              <Button variant="outline" size="sm" onClick={() => setDeleteSaleId(null)} className="rounded-xl text-xs h-9">Cancel</Button>
+              <Button size="sm" disabled={deletingSale} onClick={handleDeleteSale} className="rounded-xl text-xs h-9 bg-rose-600 hover:bg-rose-700 text-white font-bold">
+                {deletingSale ? 'Deleting...' : 'Delete Sale'}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
